@@ -1,0 +1,10 @@
+
+## Keep in mind, in this example a POM will be created for you, if you want to add your own POM. You have to enable that option in the parameters and add the option and link to the POMfile on your machine to upload. ##
+1. Upload the artifact:
+mvn deploy:deploy-file -Dpackaging="jar" -DrepositoryId="<repo ID>" -Durl="<Repo URL>" -DgroupId="<change>" -DartifactId="<change>" -Dversion="<change>" -Dfile="<change>"
+
+2. Upload sources:
+mvn deploy:deploy-file -Dpackaging="<change type of package>" -DrepositoryId="<repo ID>" -Durl="<Repo URL>" -DgroupId="<change so same as #1>" -DartifactId="<change so same as #1>" -Dversion="<cahnge to same as #1>" -Dfile="<change to jar ources file>" -Dclassifier=sources -DgeneratePom=false
+
+3. Upload only a pom
+mvn deploy:deploy-file -Dpackaging="pom" -DrepositoryId="<repo ID>" -Durl="<Repo URL>" -DgroupId="<change>" -DartifactId="<change>" -Dversion="<change>" -Dfile="<change>"
