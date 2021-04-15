@@ -1,0 +1,85 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "master_cluster_name": {
+        "type": "string",
+        "defaultValue": "<add default name>",
+        "metadata": {
+          "description": "The name of the aks cluster(and relevant sub-parts)."
+        }
+      },
+      "service_principle_appid": {
+        "type": "string",
+        "defaultValue": "",
+        "metadata": {
+          "description": "The appid of the service-principle for the aks cluster."
+        }
+      },
+      "service_principle_secret": {
+        "type": "string",
+        "defaultValue": "",
+        "metadata": {
+          "description": "The secret of the service-principle for the aks cluster."
+        }
+      },
+      "kubeversion": {
+        "type": "string",
+        "defaultValue": "1.18.14",
+        "metadata": {
+          "description": "The kubernetes version for the aks cluster."
+        }
+      }
+    },
+    "variables": {},
+    "resources": [
+      {
+        "type": "Microsoft.ContainerService/managedClusters",
+        "apiVersion": "2021-02-01",
+        "name": "[parameters('master_cluster_name')]",
+        "location": "[resourceGroup().location]",
+        "tags": {},
+        "properties": {
+          "kubernetesVersion": "[parameters('kubeversion')]",
+          "dnsPrefix": "[parameters('master_cluster_name')]",
+          "agentPoolProfiles": [
+            {
+              "name": "d4sv3",
+              "count": 1,
+              "vmSize": "Standard_D4s_v3",
+              "osDiskSizeGB": 100,
+              "osDiskType": "Managed",
+              "maxPods": 110,
+              "type": "VirtualMachineScaleSets",
+              "maxCount": 10,
+              "minCount": 1,
+              "enableAutoScaling": true,
+              "orchestratorVersion": "[parameters('kubeversion')]",
+              "mode": "System"
+            }
+          ],
+          "servicePrincipalProfile": {
+            "clientId": "[parameters('service_principle_appid')]",
+            "secret": "[parameters('service_principle_secret')]"
+          },
+          "addonProfiles": {
+            "KubeDashboard": {
+              "enabled": true
+            },
+            "httpapplicationrouting": {
+              "enabled": false,
+              "config": {}
+            },
+            "omsagent": {
+              "enabled": false,
+              "config": {}
+            }
+          },
+          "enableRBAC": true,
+          "networkProfile": {
+            "networkPlugin": "kubenet"
+          }
+        }
+      }
+  ]
+}
