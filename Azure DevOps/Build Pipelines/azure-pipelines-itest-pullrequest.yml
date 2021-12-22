@@ -1,0 +1,76 @@
+# Don't trigger this pipeline on git changes, this pipeline will only trigger on a schedule
+trigger: none
+
+pool: <name>
+
+variables:
+  - group: <name>
+
+stages:
+  - stage: CodeAnalysis
+    displayName: Code Analysis and Integration Tests
+    jobs:
+      - job: CodeAnalysis
+        displayName: Code Analysis and Integration Tests
+        timeoutInMinutes: 480
+        steps:
+
+          - task: Bash@3
+            displayName: Download Openjdk
+            inputs:
+              targetType: filePath
+              filePath: $(Build.SourcesDirectory)/<path>.sh
+              arguments: $(Agent.ToolsDirectory)
+
+          - task: JavaToolInstaller@0
+            displayName: Install Java
+            inputs:
+              versionSpec: "11"
+              jdkArchitectureOption: x64
+              jdkSourceOption: LocalDirectory
+              jdkFile: $(jdk_location)
+              jdkDestinationDirectory: $(Agent.ToolsDirectory)/installations/openjdk
+              cleanDestinationDirectory: true
+
+          - task: NodeTool@0
+            displayName: Install Nodejs version
+            inputs:
+              versionSpec: 8.11.2
+
+          - task: Bash@3
+            displayName: Download Maven
+            inputs:
+              targetType: filePath
+              filePath: $(Build.SourcesDirectory)/<path>.sh
+              arguments: $(Agent.ToolsDirectory)
+
+          - task: ExtractFiles@1
+            displayName: Extract Maven installation
+            inputs:
+              archiveFilePatterns: $(maven_location)
+              destinationFolder: $(Agent.ToolsDirectory)/<path>
+
+          - task: Bash@3
+            displayName: Set targetbranchname
+            inputs:
+              targetType: inline
+              script: |
+                IN=$(System.PullRequest.TargetBranch)
+                arrIN=(${IN///// })
+                echo ${arrIN[3]}
+                echo "##vso[task.setvariable variable=targetbranchname]${arrIN[3]}"
+
+          - task: Maven@3
+            displayName: Maven Install <name>
+            condition: succeeded()
+            inputs:
+              mavenOptions: -Xmx6096m
+              jdkVersionOption: 1.11
+              goals: -U -B clean install integration-test -Ddockerfile.skip -DskipIntegrationTests=false -fae
+              options: -Dorg.slf4j.simpleLogger.showDateTime=true -Dorg.slf4j.simpleLogger.dateTimeFormat=HH:mm:ss
+              mavenAuthenticateFeed: true
+              mavenDirectory: $(Agent.ToolsDirectory)/installations/maven/apache-maven-3.6.0
+              effectivePomSkip: true
+              sqMavenPluginVersionChoice: 'pom'
+              testResultsFiles: '**/*-reports/*TEST-*.xml'
+              publishJUnitResults: true

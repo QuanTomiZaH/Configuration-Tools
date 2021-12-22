@@ -1,0 +1,218 @@
+parameters:
+  - name: release_version
+    displayName: Release Version
+    type: string
+    default: none
+  - name: sdk_version
+    displayName: SDK Version
+    type: string
+    default: none
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - develop
+      - feature/*
+      - release/*
+      - support/*
+      - master
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: MAVEN_CACHE_FOLDER
+    value: /home/vsts/.m2/repository
+  - group: npm-config-variables
+  - group: docker-login-pipelines
+  - name: release_args
+    value: ''
+  - name: docs_branch
+    value: $(Build.SourceBranch)
+  - name: public_feed_id
+    value: <id>
+  - name: public_feed_url
+    value: <url>
+  - group: teams-webhooks
+
+stages:
+  - stage: Build
+    displayName: Build ContentHub
+    jobs:
+      - job: Build
+        displayName: Build ContentHub
+        timeoutInMinutes: 90
+        steps:
+
+          - bash: sudo timedatectl set-timezone "Europe/Vienna"
+            displayName: Set Timezone
+
+          - task: Bash@3
+            displayName: Clone Docs
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+            inputs:
+              filePath: $(Build.SourcesDirectory)/<path>/clone_docs.sh
+
+          - task: Cache@2
+            displayName: Cache Maven
+            inputs:
+              key: 'mvn | "$(Agent.OS)" | **/pom.xml, !**/target/**'
+              restoreKeys: |
+                mvn | "$(Agent.OS)"
+                mvn
+              path: $(MAVEN_CACHE_FOLDER)
+
+          - task: DownloadPipelineArtifact@2
+            displayName: Download <name>
+            inputs:
+              artifact: <name>
+              patterns: '**/*-dist.zip'
+              path: $(Build.SourcesDirectory)/<path>
+              source: specific
+              project: <name>
+              pipeline: <name>
+              runVersion: latestFromBranch
+              runBranch: refs/heads/master
+
+          - task: Bash@3
+            displayName: Export <name>
+            inputs:
+              targetType: filePath
+              filePath: $(Build.SourcesDirectory)/<path>.sh
+              arguments: $(Build.SourcesDirectory)
+
+          - task: Bash@3
+            displayName: Creating <name> location
+            inputs:
+              targetType: filePath
+              filePath: $(Build.SourcesDirectory)/<path>.sh
+              arguments: $(Build.SourcesDirectory)
+
+          - task: DownloadPipelineArtifact@2
+            displayName: Download <name>
+            inputs:
+              artifact: <name>
+              path: $(Build.SourcesDirectory)/<path>
+              source: specific
+              project: <name>
+              pipeline: <name>
+              runVersion: latestFromBranch
+              runBranch: $(Build.SourceBranch)
+
+          - task: Bash@3
+            displayName: Npm authenticate and install grunt
+            inputs:
+              filePath: $(Build.SourcesDirectory)/infrastructure/pipelines/npm_config_set.sh
+              arguments: $(npm.config.registry) $(npm.config.username) $(npm.config.email) $(npm.config.secret)
+
+          - task: Bash@3
+            displayName: Docker Login
+            inputs:
+              targetType: inline
+              script: docker login <nameacr> --username $(docker.username) --password $(docker.secret)
+
+          - task: SetVariable@1
+            displayName: Set Release Version
+            condition: ne( '${{ parameters.release_version }}' , 'none')
+            inputs:
+              name: release_args
+              value: -Drevision=${{ parameters.release_version }} -DskipTests -Dappserver.deployment.skip=false
+
+          - task: Maven@3
+            displayName: Set SDK Version
+            condition: ne( '${{ parameters.sdk_version }}' , 'none')
+            inputs:
+              mavenOptions: -Xmx4096m
+              jdkVersionOption: 1.11
+              goals: versions:set-property -Dproperty=<name> -DnewVersion=${{ parameters.sdk_version }}
+              options: -Dorg.slf4j.simpleLogger.showDateTime=true -Dorg.slf4j.simpleLogger.dateTimeFormat=HH:mm:ss
+              mavenAuthenticateFeed: true
+              effectivePomSkip: true
+
+          - task: MavenAuthenticate@0
+            displayName: Maven Authenticate
+            inputs:
+              artifactsFeeds: <namefeeds>
+
+          - task: Maven@3
+            displayName: Build
+            condition: succeeded()
+            inputs:
+              mavenOptions: -Xmx4096m
+              jdkVersionOption: 1.11
+              goals: -U -B $(maven_goal) $(release_args) $(maven_args) -Dsynergy.version.buildnr=$(Build.BuildNumber)
+              options: -Dorg.slf4j.simpleLogger.showDateTime=true -Dorg.slf4j.simpleLogger.dateTimeFormat=HH:mm:ss
+              effectivePomSkip: true
+
+          - task: Bash@3
+            displayName: Update build number
+            condition: succeeded()
+            inputs:
+              filePath: $(Build.SourcesDirectory)/infrastructure/pipelines/update_build_number.sh
+              arguments: ${{ parameters.release_version }}
+
+          - bash: |
+              docker tag <name>:<tag> <name>:<tag>
+              docker push <name>:<tag>
+            displayName: Push docker image with alias
+            continueOnError: true
+
+          - task: git-tag-on-release-task@9
+            displayName: Tag Release
+            condition: and(succeeded(), ne( '${{ parameters.release_version }}' , 'none'))
+            inputs:
+              staticTagName: ${{ parameters.release_version }}
+
+          - task: Bash@3
+            displayName: Public Feed Upload
+            condition: and(succeeded(), ne( '${{ parameters.release_version }}' , 'none'))
+            continueOnError: true
+            env:
+              VERSION: ${{ parameters.release_version }}
+              PUBLIC_FEED_ID: $(public_feed_id)
+              PUBLIC_FEED_URL: $(public_feed_url)
+            inputs:
+              filePath: $(Build.SourcesDirectory)/<path>.sh
+              workingDirectory: $(Build.SourcesDirectory)
+              failOnStderr: true
+
+          - task: CopyFiles@2
+            displayName: Stage Build Artifact
+            inputs:
+              SourcesFolder: $(Build.SourcesDirectory)
+              Contents: |
+                $(Build.SourcesDirectory)/<path>/*.zip
+                $(Build.SourcesDirectory)/<path>/*.war
+              TargetFolder: $(Build.ArtifactsStagingDirectory)
+              flattenFolders: true
+
+          - task: CopyFiles@2
+            displayName: Stage Cloud Modules
+            inputs:
+              SourcesFolder: $(Build.SourcesDirectory)
+              Contents: |
+                $(Build.SourcesDirectory)/<path>/*.jar
+              TargetFolder: $(Build.ArtifactsStagingDirectory)/<path>
+              flattenFolders: true
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish Artifacts
+            inputs:
+              targetPath: $(Build.ArtifactsStagingDirectory)
+              artifactName: <name>
+
+          - bash: |
+              mvn clean -f $(Build.SourcesDirectory)/pom.xml
+              sudo rm -rf $(Build.ArtifactsStagingDirectory)/<path>
+            displayName: Cleanup
+
+          - task: O365PostMessageBuild@0
+            displayName: 'MS Teams Notification'
+            condition: eq(variables['Agent.JobStatus'], 'Failed')
+            inputs:
+              url: $(failure_webhook_teams_notification)
+              title: <name>
+              text: |
+                $(Build.SourceBranchName) <name> failed.

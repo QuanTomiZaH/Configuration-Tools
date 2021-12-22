@@ -1,0 +1,47 @@
+trigger: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: MAVEN_CACHE_FOLDER
+    value: /home/vsts/.m2/repository
+  - group: npm-config-variables
+  - group: docker-login-pipelines
+
+stages:
+  - stage: <name>
+    displayName: Test <name>
+    jobs:
+      - job: <name>
+        displayName: Test <name>
+        timeoutInMinutes: 90
+        steps:
+
+          - bash: sudo timedatectl set-timezone "Europe/Vienna"
+            displayName: Set Timezone
+
+          - task: Cache@2
+            displayName: Cache Maven
+            inputs:
+              key: 'maven | "$(Agent.OS)" | **/pom.xml'
+              restoreKeys: |
+                maven | "$(Agent.OS)"
+                maven
+              path: $(MAVEN_CACHE_FOLDER)
+
+          - task: Bash@3
+            displayName: Npm authenticate and install grunt
+            inputs:
+              targetType: filePath
+              filePath: $(Build.SourcesDirectory)/<path>.sh
+              arguments: $(npm.config.registry) $(npm.config.username) $(npm.config.email) $(npm.config.secret)
+
+          - task: Maven@3
+            displayName: Test
+            inputs:
+              mavenOptions: -Xmx4096m
+              jdkVersionOption: 1.11
+              goals: -U -B verify -Ddockerfile.skip -fae
+              mavenAuthenticateFeed: true
+              effectivePomSkip: true
