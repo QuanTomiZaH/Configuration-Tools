@@ -1,0 +1,54 @@
+# Node.js with Angular
+
+# Build a Node.js project that uses Angular.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/javascript
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  YARN_CACHE_FOLDER: $(Pipeline.Workspace)/node_modules
+  IS_PR: $[ eq(variables['Build.Reason'], 'PullRequest') ]
+  
+# once triggers are added, use IS_PR to set the correct --base value for lint/build/test!
+
+steps:
+  - task: Bash@3
+    inputs:
+      targetType: 'inline'
+      script: |
+        refToReplace=$BASE_REF
+        echo "##vso[task.setvariable variable=BASE;isOutput=true]${refToReplace//refs\/heads/origin}"
+    env:
+      BASE_REF: $(System.PullRequest.TargetBranch)
+    name: getBaseRef
+
+  - bash: |
+      echo Base branch to use: $(getBaseRef.BASE)
+      
+  - task: YarnInstaller@3
+    inputs:
+      versionSpec: '1.x'
+    displayName: 'Install Yarn'
+
+  - task: CopyFiles@2
+    inputs:
+      Contents: 'libs/.npmrc'
+      TargetFolder: '$(Build.SourcesDirectory)'
+      flattenFolders: true
+    displayName: Copy .npmrc
+
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '15.14.0'
+
+  - task: Yarn@3
+    displayName: 'Install dependencies'
+    condition: ne(variables.CACHE_RESTORED, 'true')
+    inputs:
+      arguments: 'install --frozen-lockfile'
+
+  - script: |
+      yarn nx affected:lint --base=$(getBaseRef.BASE)
+    displayName: 'lint'
