@@ -17,7 +17,7 @@ parameters:
   - name: app_version # The app version of the application to deploy
     type: string
     default: $(Build.SourceBranchName)
-  - name: pod_size # The pod size of the ContentHub application
+  - name: pod_size # The pod size of the <name> application
     type: string
     default: xsmall # Here we have control over the default pod size to deploy
   - name: git_branch # The git branch of cluster template to deploy
@@ -42,7 +42,7 @@ parameters:
 steps:
 #### Checkout repositories ###
   - checkout: <name>
-    path: contenthub-infra
+    path: <name>
 #### End checkout repositories ###
 
 ### Teams Notification ###
@@ -150,7 +150,7 @@ steps:
       chartType: FilePath
       chartPath: $(Agent.BuildDirectory)/<path>
       releaseName: <name>-$(customer)-${{ parameters.environment }}
-      valueFile: $(Agent.BuildDirectory)/contenthub-infra/application/azure-values.yaml
+      valueFile: $(Agent.BuildDirectory)/<path>.yaml
       waitForExecution: false
       arguments: >-
         --values=$(Agent.BuildDirectory)/<path>.yaml

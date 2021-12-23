@@ -1,0 +1,15 @@
+steps:
+  - task: Bash@3
+    displayName: Application Health check
+    inputs:
+      targetType: inline
+      script:
+        timeout -s TERM 15m bash -c 'while [[ "$(curl -k -s -o /dev/null -L -w ''%{http_code}'' ${0})" != "200" ]]; do sleep 2; done' \
+          https://<path>
+        curl -I https://<path>
+
+  - task: Qualys-Inc.was-build-release-task.custom-build-release-task.QualysWASConnector@2
+    displayName: 'Scan Web Applications with Qualys WAS'
+    inputs:
+      webApplication: $(was_web_application)
+      WasService: $(was_service)

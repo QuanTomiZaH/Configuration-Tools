@@ -1,0 +1,39 @@
+# Parameters that need to be parsed in by the consumer pipeline
+parameters:
+  ### Mandatory ###
+  - name: git_branches # renote-sdk test branches
+    type: object
+    default: {}
+
+steps:
+
+  - ${{ each branch in parameters.git_branches }}:
+#### Checkout repositories ###
+      - checkout: <name>
+        path: <name>
+#### End checkout repositories ###
+
+      - task: Cache@2
+        displayName: Cache Maven
+        inputs:
+          key: 'maven | "$(Agent.OS)" | $(Agent.BuildDirectory)/<path>/pom.xml'
+          restoreKeys: |
+            maven | "$(Agent.OS)"
+            maven
+          path: /home/vsts/.m2/repository
+
+      - task: Maven@3
+        displayName: "RemoteSDK ${{ branch }} branch Test"
+        condition: succeeded()
+        continueOnError: true
+        inputs:
+          mavenPomFile: $(Agent.BuildDirectory)/<path>/pom.xml
+          mavenOptions: -Xmx4096m
+          jdkVersionOption: 1.11
+          goals: test
+          options: -DskipRemoteTests=false -Dsurefire.rerunFailingTestsCount=3 -pl :api-remote-test
+          mavenAuthenticateFeed: true
+          effectivePomSkip: true
+          testRunTitle: 'SDK Branch ${{ branch }}'
+          testResultsFiles: $(Agent.BuildDirectory)/<path>/TEST-*.xml     
+      

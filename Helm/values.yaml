@@ -59,7 +59,7 @@ ingress-nginx:
     enabled: true
     image:
       pullPolicy: Always
-      repository: chdevmaster.azurecr.io/celum/contenthub-error-pages
+      repository: <path>
       tag: 1.0.0
     nodeSelector:
       "beta.kubernetes.io/os": linux

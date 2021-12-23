@@ -1,0 +1,73 @@
+#trigger
+trigger: none
+
+# Weekely, At every minute past hour 23 on Friday  
+schedules:
+- cron: "1 23 * * 5"
+  displayName: Weekly cron job
+  branches:
+    include:
+    - develop
+
+parameters:
+  - name: cleanup_acr
+    displayName: 'Cleanup the ACR'
+    type: boolean 
+    default: false
+  - name: cleanup_feed
+    displayName: 'Cleanup the Feed'
+    type: boolean 
+    default: false
+  - name: dryrun
+    displayName: 'DryRun'
+    type: boolean 
+    default: false
+  - name: version
+    displayName: 'Version'
+    type: string
+    default: 'none'
+
+variables:
+  - group: feeds_cleanup_PAT # To get PAT for feed deletion
+
+#Resource pool to use
+pool: 
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: AzureCLI@2
+    displayName: ACR untagged Cleanup
+    condition: and(eq( '${{ parameters.cleanup_acr}}', 'false'), eq('${{ parameters.version }}', 'none'))
+    inputs:
+      azureSubscription: CH_Cleanup_SC
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        az acr run --registry chdevmaster \
+          --cmd "acr purge \
+          --filter '<name>:^.$' \
+          --filter '<name>:^.$' \
+          --filter '<name>:^.$' \
+          --filter '<name>:^.$' \
+          --untagged --ago 7d"  /dev/null
+
+  - task: AzureCLI@2
+    displayName: ACR Image deletion
+    condition: and(eq( '${{ parameters.cleanup_acr}}', 'true'), ne('${{ parameters.version }}', 'none'))
+    inputs:
+      azureSubscription: CH_Cleanup_SC
+      scriptType: bash
+      scriptPath: ./miscellaneous/cleanup/acr_cleanup.sh
+      arguments: >-
+        "${{ parameters.version }}" 
+        "${{ parameters.dryrun }}"
+
+  - task: Bash@3
+    displayName: Feed Deletion
+    condition: and(eq( '${{ parameters.cleanup_feed}}', 'true'), ne('${{ parameters.version }}', 'none'))
+    inputs:
+      filePath: ./miscellaneous/cleanup/feed_cleanup.sh
+      arguments: >-
+        "${{ parameters.version }}" 
+        "${{ parameters.dryrun }}" 
+        "$(feed_pat)"

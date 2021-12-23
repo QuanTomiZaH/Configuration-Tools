@@ -20,7 +20,7 @@ parameters:
   - name: app_version # The app version of the application to deploy
     type: string
     default: $(Build.SourceBranchName)
-  - name: pod_size # The pod size of the ContentHub application
+  - name: pod_size # The pod size of the <name> application
     type: string
     default: xsmall # Here we have control over the default pod size to deploy
   - name: git_branch # The git branch of cluster template to deploy
@@ -35,7 +35,7 @@ parameters:
   - name: log_level
     type: string
     default: WARN
-  - name: appserver_image # The image to use, options are: "contenthub-application" and "contenthub-application-extended"
+  - name: appserver_image # The image to use, options are: "<name>-application" and "<name>-application-extended"
     type: string
     default: <name>
   - name: jsessionid_samesite # Setting the nginx samesite cookie settings. Options are: "None", "Lax" and "Strict"
@@ -49,8 +49,8 @@ parameters:
     default: false
 
 jobs:
-- deployment: DeployContentHub
-  displayName: Deploy ContentHub
+- deployment: Deploy<name>
+  displayName: Deploy <name>
   environment: $(customer)
   strategy:
     runOnce:

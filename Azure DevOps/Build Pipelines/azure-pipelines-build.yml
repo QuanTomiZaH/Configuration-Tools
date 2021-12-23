@@ -38,10 +38,10 @@ variables:
 
 stages:
   - stage: Build
-    displayName: Build ContentHub
+    displayName: Build <name>
     jobs:
       - job: Build
-        displayName: Build ContentHub
+        displayName: Build <name>
         timeoutInMinutes: 90
         steps:
 
