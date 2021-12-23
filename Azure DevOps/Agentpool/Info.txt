@@ -1,0 +1,99 @@
+Created test scaleset using the following MS guide: Azure virtual machine scale set agents - Azure Pipelines | Microsoft Docs
+
+
+az vmss create --admin-username <name> --admin-password  <name>  --name vmssagentspool --resource-group <name> --image UbuntuLTS --vm-sku Standard_B2s --storage-sku StandardSSD_LRS --instance-count 1 --disable-overprovision --upgrade-policy-mode manual --single-placement-group false --platform-fault-domain-count 1 --load-balancer ""
+
+az vmss create \
+--name vmssagentspool \
+--resource-group chdev-devops \
+--image UbuntuLTS \
+--vm-sku Standard_B2s \
+--storage-sku StandardSSD_LRS \
+--instance-count 2 \
+--disable-overprovision \
+--upgrade-policy-mode manual \
+--single-placement-group false \
+--platform-fault-domain-count 1 \
+--admin-username <name> \
+--admin-password  <name> \
+--load-balancer ""
+
+
+------------
+MS agents Overview
+
+Agents pools - Azure Pipelines | Microsoft Docs
+
+
+
+Azure virtual machine scale set agents - Azure Pipelines | Microsoft Docs
+Scale sets:
+A EC2 scale set which is managed by microsoft and automatically deploys azure agents on them -  when necessary
+ When to use:
+Scales up automatically when necessary
+
+notes:
+	- Scales up/down every 5 minutes
+	- Increments based on maximum pool size
+	- 20 mins to deploy a new machine
+	- Properties:
+		○ You can set the standby agents
+		○ You can set the maximum agents
+
+Advantages:
+	- Scales up automatically
+
+
+Disadvantages:
+	- Only linux agents
+	
+
+Unknowns:
+	- Costs comparison with azure devops hosted agents
+
+Cost hosted agent:
+	- $40 per month(no matter the usage)
+
+Unknowns:
+	- What dependencies are installed with the azure devops agent
+	- Agent pricing
+
+-----------
+Options info
+
+Different Agent options
+	- Microsoft Hosted
+		○ Pros
+			§ Easy to use
+			§ Little effort required
+		○ Cons
+			§ Costs?
+			§ Scalability
+			§ Shared between every team
+	- Self Hosted (On premise infrastructure leverage)
+		○ Pros
+			§ Costs?
+			§ Re-used infrastructure
+		○ Cons
+			§ Configuration
+			§ Maintenance
+			§ Networking / availability
+			§ Scalability
+	- Azure Hosted Replicaset(s)
+		○ Pros
+			§ Costs (in between above options)
+			§ Scalability
+			§ Separation of collections between team(s)
+		○ Cons
+			§ Configuration
+			§ Maintenance
+			§ Networking / availability
+
+Strategy conform Azure DevOps agents:
+	- What is the preferred method of Az DevOps agent usage
+		○ MS hosted agents
+	- Should there be any separation of consuming agents per team / department / service?
+	- What are the qualifiers for scaling agents up(or down)
+	
+	- Who is the responsible party for questions concerning this (it is a companywide topic)
+	- Where do the costs land

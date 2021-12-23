@@ -1,0 +1,38 @@
+jq 'del(.parameters.customer)' parameters-template.json
+jq '. + { "key4": "value4" }' <<< parameters-template.json
+
+jq 'add(.parameters.customer)' parameters-template.json
+
+
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "<name>": {
+            "value": null
+        }
+    }
+}
+
+
+parameters-template.json
+
+jq '. + { "key4": "value4" }' parameters-template.json
+jq '. + { "parameters": { "customer": { "type": "String", "value": "celum" } } }' parameters-template.json
+jq '. + { "parameters": { "resource_prefix": { "type": "String", "value": "chdev" } } }' parameters-template.json
+jq '. + { "parameters": { "environment": { "type": "String", "value": "dev" } } }' parameters-template.json
+jq '. + { "parameters": { "resource_location": { "type": "String", "value": "westeurope" } } }' parameters-template.json
+
+environment
+resource_location
+
+.parameters.customer.value
+
+# add action here to put json into var
+jq '.parameters.customer.value = $newVal' --arg newVal '<name>' parameters-template.json > tmp.$$.json && mv tmp.$$.json parameters-template.json
+jq '.parameters.resource_prefix.value = $newVal' --arg newVal '<name>' parameters-template.json > tmp.$$.json && mv tmp.$$.json parameters-template.json
+jq '.parameters.environment.value = $newVal' --arg newVal '<name>' parameters-template.json > tmp.$$.json && mv tmp.$$.json parameters-template.json
+jq '.parameters.resource_location.value = $newVal' --arg newVal '<name>' parameters-template.json > tmp.$$.json && mv tmp.$$.json parameters-template.json
+cat parameters-template.json
+
+ tmp.$$.json && mv tmp.$$.json test.json
