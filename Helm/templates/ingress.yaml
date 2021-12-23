@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: <name>
+  annotations:
+    nginx.ingress.kubernetes.io/whitelist-source-range: {{ .Values.whitelist_source_range }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/client-body-buffer-size: "4k"
+    nginx.ingress.kubernetes.io/server-snippet: |
+      proxy_cookie_flags JSESSIONID samesite={{ .Values.jsessionid_samesite }} secure;
+      proxy_cookie_flags ~ samesite=strict secure;
+
+      location /remoteapi {
+        proxy_pass http://<name>:8765/api;
+      }
+      location /remoteapi/websocket {
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_pass http://<name>:8765/api/websocket;
+      }
+      # this blocks search engines from scanning the website
+      location = /robots.txt {
+        add_header  Content-Type  text/plain;
+        return 200 "User-agent: *\nDisallow: /\n";
+      }
+spec:
+  ingressClassName: {{ .Values.customer }}-{{ .Values.environment }}
+  tls:
+    - hosts:
+        - {{ .Values.public_host }}
+      secretName: tls-secret
+  rules:
+    - host: {{ .Values.public_host }}
+      http:
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: <name>
+                port:
+                  number: 80
+          - path: /api
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: <name>
+                port:
+                  number: 8765
+---

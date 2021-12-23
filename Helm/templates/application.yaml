@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <name>-{{ .Values.customer }}-{{ .Values.environment }}-application
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: <name>-application
+  template:
+    metadata:
+      labels:
+        app: <name>-application
+      annotations:
+        timestamp: "{{ date "20060102150405" .Release.Time }}"
+    spec:
+      nodeSelector:
+        "beta.kubernetes.io/os": linux
+      containers:
+        - name: <name>-{{ .Values.customer }}-{{ .Values.environment }}-application
+          image: {{ .Values.resource_prefix }}<value>/{{ .Values.appserver_image }}:{{ .Values.app_version }}-{{ .Values.customer }}
+          imagePullPolicy: Always
+          env:
+          - name: APPLICATION_<value>
+            value: <value>
+          - name: APPLICATION_<value>
+            valueFrom:
+              secretKeyRef:
+                name: <name>
+                key: <value>
+          - name: STORAGE_PUBLIC_URL
+            value: https://{{ .Values.public_host }}/storageserver
+          {{- end }}
+          resources:
+            {{- toYaml .Values.application.resources | nindent 12 }}
+          ports:
+            - containerPort: <value>
+            - containerPort: <value>
+          livenessProbe:
+            httpGet:
+              port: 8080
+              path: /health/ping
+            initialDelaySeconds: 600
+            periodSeconds: 60
+          volumeMounts:
+            - name: <name>
+              mountPath: <path>
+              subPath: <path>
+      imagePullSecrets:
+        - name: <name>
+      volumes:
+        - name: <name>
+          persistentVolumeClaim:
+            claimName: <name>

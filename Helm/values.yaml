@@ -1,0 +1,72 @@
+# The below is an example for creating your own value store files
+# These values are overwritten by the environment-values.yaml created in the prepare-config.sh
+logLevel: "WARN"
+
+testautomation: "false" # For mail disabling in automation testing
+
+storage:
+  jvm:
+    xmx: 768m
+    xms: 256m
+  resources:
+    requests:
+      cpu: 0.25
+      memory: 0.5G
+    limits:
+      cpu: 0.5
+      memory: 1G
+
+# NGINX VALUES #
+ingress-nginx:
+  controller:
+    addHeaders:
+      Referrer-Policy: "same-origin"
+      Content-Security-Policy: <Policy>
+      Permissions-Policy: <Policy>
+    replicaCount: 1
+    config:
+      hsts-max-age: 63072000
+      hsts-include-subdomains: true
+      client_body_timeout: 5
+      client_header_timeout: 5
+      client_header_buffer_size: 512
+      large_client_header_buffers: 2 4k
+      proxy-read-timeout: 300
+      proxy-send-timeout: 300
+      proxy_hide_header:
+      - Referrer-Policy
+      - Content-Security-Policy
+      - Permissions-Policy
+      enable-modsecurity: enabled
+      enable-owasp-modsecurity-crs: enabled
+      ssl-redirect: true
+      ssl-ciphers: TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_CCM_8_SHA256:TLS_AES_128_CCM_SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+    scope:
+      enabled: true
+    service:
+      externalTrafficPolicy: Local
+    resources:
+      requests:
+        cpu: 0.25
+        memory: 0.5G
+      limits:
+        cpu: 0.5
+        memory: 1G
+    admissionWebhooks:
+      enabled: false
+
+  defaultBackend:
+    enabled: true
+    image:
+      pullPolicy: Always
+      repository: chdevmaster.azurecr.io/celum/contenthub-error-pages
+      tag: 1.0.0
+    nodeSelector:
+      "beta.kubernetes.io/os": linux
+    resources:
+      requests:
+        cpu: 0.1
+        memory: 0.1G
+      limits:
+        cpu: 0.2
+        memory: 0.2G

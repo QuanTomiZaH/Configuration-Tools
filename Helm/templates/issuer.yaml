@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+# The following DNS names for letsencrypt are available, change the target according to the environment(if running into rate limits):
+# Production: https://acme-v02.api.letsencrypt.org/directory
+# Testing: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: <value>
+    privateKeySecretRef:
+      name: letsencrypt
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

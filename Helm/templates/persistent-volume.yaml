@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: <value>-{{ .Release.Namespace }}
+  labels: {
+    container_type: <value>,
+    namespace: {{ .Release.Namespace }}
+  }
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  claimRef:
+    name: <value>
+    namespace: {{ .Release.Namespace }}
+  azureFile:
+    secretName: <value>
+    secretNamespace: {{ .Release.Namespace }}
+    shareName: <value>
+    readOnly: false
+  mountOptions:
+    - dir_mode=0777
+    - file_mode=0777
+    - uid=1000
+    - gid=1000
+    - mfsymlinks
+    - nobrl
