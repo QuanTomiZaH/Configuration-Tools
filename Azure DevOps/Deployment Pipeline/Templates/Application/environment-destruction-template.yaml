@@ -1,0 +1,137 @@
+# Parameters that need to be parsed in by the consumer pipeline
+parameters:
+  ### Mandatory ###
+  - name: environment # The environment to deploy e.g.: development
+    type: string
+  - name: dns_cname # The dns cname for this deployment
+    type: string
+  - name: destroy_azure_resources # The parameter to decide for only the destruction of the namespace or all resources | For all resources input true, for only namespace deletion input false
+    type: string
+    default: false
+  - name: destroy_namespace # The parameter to decide for only the destruction of the namespace or all resources | For all resources input true, for only namespace deletion input false
+    type: string
+    default: false
+
+steps:
+  - task: Kubernetes@1
+    displayName: Delete Customer Container Deployments
+    inputs:
+      connectionType: Azure Resource Manager
+      azureSubscriptionEndpoint: $(arm_service_connection)
+      azureResourceGroup: $(resource_prefix)-master
+      kubernetesCluster: $(resource_prefix)-master-cluster-$(resource_location)
+      command: delete
+      arguments: --namespace=$(customer)-${{ parameters.environment }} --all deployments
+
+  - task: Kubernetes@1
+    displayName: Delete nginx Service
+    condition: succeeded()
+    inputs:
+      connectionType: Azure Resource Manager
+      azureSubscriptionEndpoint: $(arm_service_connection)
+      azureResourceGroup: $(resource_prefix)-master
+      kubernetesCluster: $(resource_prefix)-master-cluster-$(resource_location)
+      command: delete
+      arguments: service <name>-$(customer)-${{ parameters.environment }}-ingress-nginx-controller -n $(customer)-${{ parameters.environment }} --ignore-not-found
+
+  - task: Kubernetes@1
+    displayName: Check if the namespace exists
+    condition: and(always(), eq(${{ parameters.destroy_namespace }}, 'true'))
+    name: checknamespace
+    inputs:
+      connectionType: Azure Resource Manager
+      azureSubscriptionEndpoint: $(arm_service_connection)
+      azureResourceGroup: $(resource_prefix)-master
+      kubernetesCluster: $(resource_prefix)-master-cluster-$(resource_location)
+      command: get
+      arguments: ns $(customer)-${{ parameters.environment }}
+
+  - task: HelmDeploy@0
+    displayName: Helm uninstall for $(customer) ${{ parameters.environment}}
+    condition: and(succeeded(), eq(${{ parameters.destroy_namespace }}, 'true'))
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      azureResourceGroup: $(resource_prefix)-master
+      kubernetesCluster: $(resource_prefix)-master-cluster-$(resource_location)
+      namespace: $(customer)-${{ parameters.environment }}
+      command: uninstall
+      arguments: <name>-$(customer)-${{ parameters.environment }}
+
+  - task: Kubernetes@1
+    displayName: Delete Customer Namespace
+    condition: and(succeeded(), eq(${{ parameters.destroy_namespace }}, 'true'))
+    inputs:
+      connectionType: Azure Resource Manager
+      azureSubscriptionEndpoint: $(arm_service_connection)
+      azureResourceGroup: $(resource_prefix)-master
+      kubernetesCluster: $(resource_prefix)-master-cluster-$(resource_location)
+      command: delete
+      arguments: ns $(customer)-${{ parameters.environment }}
+
+  - task: AzureCLI@2
+    displayName: Check Customer Resource group existence
+    condition: and(always(), eq(${{ parameters.destroy_azure_resources }}, 'true'))
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: az group exists --name $(resource_prefix)-$(customer)-${{ parameters.environment }} --verbose
+
+  - task: AzureCLI@2
+    displayName: Delete Customer Azure Resource group
+    condition: and(succeeded(), eq(${{ parameters.destroy_azure_resources }}, 'true'))
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: az group delete --name $(resource_prefix)-$(customer)-${{ parameters.environment }} --verbose --yes
+
+  - task: AzureCLI@2
+    displayName: Check sql database existence
+    condition: and(always(), eq(${{ parameters.destroy_azure_resources }}, 'true'))
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: az sql db show --resource-group $(resource_prefix)-master --name $(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db --server $(resource_prefix)-master-sql-server-$(resource_location) --verbose
+
+  - task: AzureCLI@2
+    displayName: Delete SQL db
+    condition: and(succeeded(), eq(${{ parameters.destroy_azure_resources }}, 'true'))
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: az sql db delete --resource-group $(resource_prefix)-master --name $(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db --server $(resource_prefix)-master-sql-server-$(resource_location) --verbose --yes
+
+  - task: AzureCLI@2
+    displayName: Delete SQL Login
+    condition: and(succeeded(), eq(${{ parameters.destroy_azure_resources }}, 'true'))
+    inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          sqlcmd -S $(resource_prefix)-master-sql-server-$(resource_location).database.windows.net -U $(resource_prefix)-master -P $(sql_admin_password) -I -Q "DROP LOGIN [$(customer)-${{ parameters.environment }}-db] ;"
+          az config set extension.use_dynamic_install=yes_without_prompt
+          tenantId=$(az account tenant list --query [].tenantId -o tsv)
+          az login --service-principal -u $(service_principal_appid) -p $(service_principal_secret) --tenant $tenantId
+          az keyvault secret delete --vault-name $(resource_prefix)-master-key-vault --name $(customer)-${{ parameters.environment }}-db
+
+  - task: AzureCLI@2
+    displayName: Check CNAME entry existence
+    condition: and(always(), eq(${{ parameters.destroy_azure_resources }}, 'true'))
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: az network dns record-set cname show --resource-group $(resource_prefix)-master --zone-name $(dns_zone_name) --name ${{ parameters.dns_cname }}
+
+  - task: AzureCLI@2
+    displayName: Delete CNAME entry
+    condition: and(succeeded(), eq(${{ parameters.destroy_azure_resources }}, 'true'))
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: az network dns record-set cname delete --resource-group $(resource_prefix)-master --zone-name $(dns_zone_name) --name ${{ parameters.dns_cname }} --yes

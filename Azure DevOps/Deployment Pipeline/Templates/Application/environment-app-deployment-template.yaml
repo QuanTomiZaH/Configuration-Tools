@@ -1,0 +1,183 @@
+# Parameters that need to be parsed in by the consumer pipeline
+parameters:
+### Mandatory ###
+  - name: environment # The environment to deploy e.g.: development
+    type: string
+  - name: dns_cname # The dns cname for this deployment
+    type: string
+  - name: application_instance_nameid # In case the
+    type: string
+  - name: webhook_teams_notification # The webhook link for teams notifications
+    type: string
+    default: false
+### Optional ###
+  - name: acr_service_connection_target # The name of the ACR service connection
+    type: string
+    default: ''
+  - name: app_version # The app version of the application to deploy
+    type: string
+    default: $(Build.SourceBranchName)
+  - name: pod_size # The pod size of the ContentHub application
+    type: string
+    default: xsmall # Here we have control over the default pod size to deploy
+  - name: git_branch # The git branch of cluster template to deploy
+    type: string
+    default: master # Here we have control over the default branch to deploy
+  - name: whitelisted_ip_range # The IP range of the customer to whitelist. This is a comma separated CIDR block. Example: 0.0.0.0/32,1.1.1.1
+    type: string
+    default: '0.0.0.0/0' # This is the default IP range (entire IPv4 internet)
+  - name: cert_manager_version # The cert manager version
+    type: string
+    default: v1.5.2 # Here we have control over the default version to deploy
+  - name: log_level # The logging level for the log4j file
+    type: string
+    default: WARN
+  - name: jsessionid_samesite # Setting the nginx samesite cookie settings. Options are: "None", "Lax" and "Strict"
+    type: string
+    default: none
+  - name: testautomation
+    type: boolean
+    default: false
+
+steps:
+#### Checkout repositories ###
+  - checkout: <name>
+    path: contenthub-infra
+#### End checkout repositories ###
+
+### Teams Notification ###
+  - ${{ if ne(parameters['webhook_teams_notification'], 'false' ) }}:
+    - task: O365PostMessageBuild@0
+      displayName: 'MS Teams Notification'
+      inputs:
+        url: ${{ parameters.webhook_teams_notification }}
+        title: "https://${{ parameters.dns_cname }}.$(dns_zone_name) is being redeployed"
+        text: |
+          https://${{ parameters.dns_cname }}.$(dns_zone_name) is being redeployed and will be available shortly \
+          ------------------------------------------------------------ \
+          Logging: \
+### End Teams Notification ###  
+  
+### Build Docker Image ###
+  - task: Docker@2
+    displayName: Build customer image
+    condition: succeeded()
+    inputs:
+      command: build
+      dockerfile: $(Agent.BuildDirectory)/$(customer)/Dockerfile
+      containerRegistry: $(acr_service_connection)
+      arguments: "-t  $(resource_prefix)<name>/${{ parameters.appserver_image }}:${{ parameters.app_version }}-$(customer) --build-arg VERSION=${{ parameters.app_version }}"
+      tags: ${{ parameters.app_version }}-$(customer)
+
+  - ${{ if ne(parameters['acr_service_connection_target'], '' ) }}:
+      - task: Docker@2
+        displayName: Push customer image
+        condition: succeeded()
+        inputs:
+          command: push
+          repository: <name>
+          containerRegistry: ${{ parameters.acr_service_connection_target }}
+          tags: ${{ parameters.app_version }}-$(customer)
+
+  - ${{ if eq(parameters['acr_service_connection_target'], '' ) }}:
+      - task: Docker@2
+        displayName: Push customer image
+        condition: succeeded()
+        inputs:
+          command: push
+          repository: <name>
+          containerRegistry: $(acr_service_connection)
+          tags: ${{ parameters.app_version }}-$(customer)
+### End Build Docker Image ###
+
+### Helm application deployment ###
+  - task: AzureCLI@2
+    displayName: Check Customer Resource group existence
+    condition: succeeded()
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        bool=$(az group exists --name $(resource_prefix)-$(customer)-${{ parameters.environment }} --verbose)
+        if [[ $bool != "true" ]]
+        then
+          echo "The resource group does not yet exist. Please make sure all Azure resources have been deployed"
+          exit 404
+        fi
+
+  - task: AzureCLI@2
+    displayName: Create k8s Deployment Environment.yaml
+    condition: succeeded()
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptPath: $(Agent.BuildDirectory)/<path>.sh
+      arguments: >-
+        "$(customer)"
+        "${{ parameters.environment }}"
+        "$(resource_prefix)"
+        "$(Agent.BuildDirectory)"
+
+  - task: Bash@3
+    displayName: Helm dependency update
+    inputs:
+      targetType: inline
+      script: helm dependency update $(Agent.BuildDirectory)/<path>
+
+  - task: Kubernetes@1
+    displayName: Apply Cert-manager CRD's
+    condition: succeeded()
+    inputs:
+      connectionType: Azure Resource Manager
+      azureSubscriptionEndpoint: $(arm_service_connection)
+      azureResourceGroup: $(resource_prefix)-master
+      kubernetesCluster: $(resource_prefix)-master-cluster-$(resource_location)
+      namespace: $(customer)-${{ parameters.environment }}
+      command: apply
+      arguments: -f https://github.com/jetstack/cert-manager/releases/download/${{ parameters.cert_manager_version }}/cert-manager.crds.yaml -o name
+
+  - task: HelmDeploy@0
+    displayName: Deploy <name> for $(customer) ${{ parameters.environment}}
+    condition: succeeded()
+    continueOnError: true
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      azureResourceGroup: $(resource_prefix)-master
+      kubernetesCluster: $(resource_prefix)-master-cluster-$(resource_location)
+      namespace: $(customer)-${{ parameters.environment }}
+      command: upgrade
+      chartType: FilePath
+      chartPath: $(Agent.BuildDirectory)/<path>
+      releaseName: <name>-$(customer)-${{ parameters.environment }}
+      valueFile: $(Agent.BuildDirectory)/contenthub-infra/application/azure-values.yaml
+      waitForExecution: false
+      arguments: >-
+        --values=$(Agent.BuildDirectory)/<path>.yaml
+        --values=$(Agent.BuildDirectory)/$(customer)/customer-properties.yaml
+        --set ingress-nginx.controller.ingressClassResource.name=$(customer)-${{ parameters.environment }}
+        --set ingress-nginx.controller.ingressClassResource.controllerValue=k8s.io/$(customer)-${{ parameters.environment }}
+        --set ingress-nginx.controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-resource-group"=$(resource_prefix)-$(customer)-${{ parameters.environment }}
+        --set testautomation=${{ parameters.testautomation }}
+        --set jsessionid_samesite=${{ parameters.jsessionid_samesite }}
+        --set appserver_image=${{ parameters.appserver_image }}
+        --set resource_location=$(resource_location)
+        --set logLevel=${{ parameters.log_level }}
+        --set application_instance_nameid=${{ parameters.application_instance_nameid }}
+        --set chcloud_env=${{ parameters.chcloud_env }}
+        --set whitelist_source_range="${{ parameters.whitelisted_ip_range }}"
+        --set app_version="${{ parameters.app_version }}"
+        --set customer=$(customer)
+        --set environment=${{ parameters.environment }}
+        --set resource_prefix=$(resource_prefix)
+        --set sql_admin_password="$(sql_admin_password)"
+        --set encryption_password="$(encryption_password)"
+        --set mail_password="$(mail_password)"
+        --set storage_secret="$(storage_secret)"
+        --set public_host="${{ parameters.dns_cname }}.$(dns_zone_name)"
+        --set azure_storage_account_name=$(resource_prefix)$(customer)${{ parameters.environment }}
+        --set application_metrics_access_key="$(application_metrics_access_key)"
+        --create-namespace
+      failOnStderr: true
+### End Helm application deployment ###
+

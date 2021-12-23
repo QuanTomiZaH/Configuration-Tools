@@ -1,0 +1,128 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "customer": {
+      "type": "String"
+    },
+    "resource_prefix": {
+      "type": "String"
+    },
+    "environment": {
+      "type": "String"
+    },
+    "resource_location": {
+      "type": "String"
+    },
+    "audit_enable": {
+      "type": "bool",
+      "defaultValue": "false"
+    }
+  },
+  "variables": {
+    "sqlDatabaseName": "[concat(parameters('resource_prefix'), '-', parameters('customer'), '-', parameters('environment'), '-sql-db')]",
+    "sqlServerName": "[concat(parameters('resource_prefix'), '-master-sql-server-', parameters('resource_location'))]",
+    "elasticPoolName": "[concat(parameters('resource_prefix'), '-master', '-elastic-pool')]",
+    "ResourceGroupID": "[resourceGroup().id]",
+    "storageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', concat(parameters('resource_prefix'), 'audit', parameters('resource_location')))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Sql/servers/databases",
+      "apiVersion": "2021-05-01-preview",
+      "location": "[parameters('resource_location')]",
+      "tags": {
+        "Customer": "[parameters('customer')]",
+        "Environment": "[parameters('environment')]"
+      },
+      "name": "[concat(variables('sqlServerName'), '/', variables('sqlDatabaseName'))]",
+      "properties": {
+        "collation": "SQL_Latin1_General_CP1_CI_AS",
+        "elasticPoolId": "[concat(variables('ResourceGroupID'), '/providers/Microsoft.Sql/servers/', variables('sqlServerName'), '/elasticPools/', variables('elasticPoolName'))]",
+        "zoneRedundant": false,
+        "readScale": "Disabled"
+      },
+      "resources": [
+        {
+          "comments": "Transparent Data Encryption",
+          "name": "current",
+          "type": "transparentDataEncryption",
+          "apiVersion": "2014-04-01-preview",
+          "properties": {
+            "status": "Enabled"
+          },
+          "dependsOn": [
+            "[variables('sqlDatabaseName')]"
+          ]
+        },
+        {
+          "type": "backupLongTermRetentionPolicies",
+          "apiVersion": "2017-03-01-preview",
+          "name": "default",
+          "properties": {
+            "weeklyRetention": "P4W"
+          },
+          "dependsOn": [
+            "[variables('sqlDatabaseName')]"
+          ]
+        },
+        {
+          "condition": "[parameters('audit_enable')]",
+          "type": "microsoft.sql/servers/databases/providers/diagnosticSettings",
+          "apiVersion": "2021-05-01-preview",
+          "name": "[concat(variables('sqlServerName'),'/',variables('sqlDatabaseName'),'/microsoft.insights/', variables('sqlDatabaseName'))]",
+          "dependsOn": [
+            "[resourceId('Microsoft.Sql/servers/databases', variables('sqlServerName'), variables('sqlDatabaseName'))]"
+          ],
+          "properties": {
+            "storageAccountId": "[variables('storageAccountId')]",
+            "logs": [
+              {
+                "categoryGroup": "allLogs",
+                "enabled": true,
+                "retentionPolicy": {
+                  "days": 30,
+                  "enabled": true
+                }
+              },
+              {
+                "categoryGroup": "audit",
+                "enabled": true,
+                "retentionPolicy": {
+                  "days": 30,
+                  "enabled": true
+                }
+              }
+            ],
+            "metrics": [
+              {
+                "category": "Basic",
+                "enabled": true,
+                "retentionPolicy": {
+                  "days": 30,
+                  "enabled": true
+                }
+              },
+              {
+                "category": "InstanceAndAppAdvanced",
+                "enabled": true,
+                "retentionPolicy": {
+                  "days": 30,
+                  "enabled": true
+                }
+              },
+              {
+                "category": "WorkloadManagement",
+                "enabled": true,
+                "retentionPolicy": {
+                  "days": 30,
+                  "enabled": true
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

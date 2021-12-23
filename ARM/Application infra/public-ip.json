@@ -1,0 +1,94 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "customer": {
+            "type": "String"
+        },
+        "resource_prefix": {
+            "type": "String"
+        },
+        "environment": {
+            "type": "String"
+        },
+        "resource_location": {
+            "type": "String"
+        },
+        "audit_enable": {
+            "type": "bool",
+            "defaultValue": "false"
+        }
+    },
+    "variables": {
+        "staticIpName": "[concat(parameters('resource_prefix'), '-', parameters('customer'), '-', parameters('environment'), '-public-ip')]",
+        "domainNameLabel": "[concat(parameters('resource_prefix'), '-', parameters('customer'), '-', parameters('environment'))]",
+        "storageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', concat(parameters('resource_prefix'), 'audit', parameters('resource_location')))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2019-11-01",
+            "name": "[variables('staticIpName')]",
+            "location": "[parameters('resource_location')]",
+            "tags": {
+                "Customer": "[parameters('customer')]",
+                "Environment": "[parameters('environment')]"
+            },
+            "sku": {
+                "name": "Standard"
+            },
+            "properties": {
+                "publicIPAddressVersion": "IPv4",
+                "publicIPAllocationMethod": "Static",
+                "idleTimeoutInMinutes": 4,
+                "dnsSettings": {
+                    "domainNameLabel": "[variables('domainNameLabel')]",
+                    "fqdn": "[concat(variables('domainNameLabel'), '.westeurope.cloudapp.azure.com')]"
+                },
+                "ipTags": []
+            },
+            "resources": [
+              {
+                "condition": "[parameters('audit_enable')]",
+                "type": "Microsoft.Network/publicIPAddresses/providers/diagnosticSettings",
+                "apiVersion": "2021-05-01-preview",
+                "name": "[variables('staticIpName')]",
+                "dependsOn": [
+                  "[resourceId('Microsoft.Network/publicIPAddresses', variables('staticIpName'))]"
+                ],
+                "properties": {
+                  "storageAccountId": "[variables('storageAccountId')]",
+                  "logs": [
+                    {
+                      "categoryGroup": "allLogs",
+                      "enabled": true,
+                      "retentionPolicy": {
+                        "days": 30,
+                        "enabled": true
+                      }
+                    },
+                    {
+                      "categoryGroup": "audit",
+                      "enabled": true,
+                      "retentionPolicy": {
+                        "days": 30,
+                        "enabled": true
+                      }
+                    }
+                  ],
+                  "metrics": [
+                    {
+                      "category": "AllMetrics",
+                      "enabled": true,
+                      "retentionPolicy": {
+                        "days": 30,
+                        "enabled": true
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+        }
+    ]
+}

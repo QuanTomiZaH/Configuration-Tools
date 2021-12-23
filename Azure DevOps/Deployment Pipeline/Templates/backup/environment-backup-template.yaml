@@ -1,0 +1,106 @@
+parameters:
+### Mandatory ###
+  - name: environment
+    type: string
+
+steps:  
+  - task: AzureCLI@2
+    displayName: storage key assign
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        storage_key=$(az storage account keys list -n $(resource_prefix)$(customer)${{ parameters.environment }}b --query [0].value --output tsv)
+        echo "##vso[task.setvariable variable=target_storage_key;]$storage_key"
+        storage_key=$(az storage account keys list -n $(resource_prefix)$(customer)${{ parameters.environment }} --query [0].value --output tsv)
+        echo "##vso[task.setvariable variable=source_storage_key;]$storage_key"
+
+        end=$(date -u -d "420 minutes" '+%Y-%m-%dT%H:%MZ')
+        sas=$(az storage container generate-sas --account-name $(resource_prefix)$(customer)${{ parameters.environment }}b -n $(customer)-${{ parameters.environment }}-sql-db-bk --https-only --permissions dclrw --expiry $end -o tsv)
+        echo "##vso[task.setvariable variable=target_sas;]$sas"
+
+  -  task: AzureCLI@2
+     displayName: create snapshot
+     inputs:
+       azureSubscription: $(arm_service_connection)
+       scriptType: bash
+       scriptLocation: inlineScript
+       failOnStandardError: true
+       inlineScript: |
+         DATE="$(date +"%Y-%m-%d-%H-%M")"
+         az snapshot create \
+           -g $(resource_prefix)-$(customer)-${{ parameters.environment }}b \
+           -n $(customer)-${{ parameters.environment }}-disk-solr-ss-$DATE \
+           --source "/subscriptions/$(subscription_id)/resourceGroups/$(resource_prefix)-$(customer)-${{ parameters.environment }}/providers/Microsoft.Compute/disks/$(resource_prefix)-$(customer)-${{ parameters.environment }}-disk-solr" \
+           --location $(resource_location) \
+           --sku Standard_LRS
+
+  -  task: AzureCLI@2
+     displayName: cleanup snapshot
+     inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        failOnStandardError: true
+        inlineScript: |
+          az login --service-principal --username $(service_principal_appid) --password $(service_principal_secret) --tenant <name>
+          lockid=$(az lock show --name rgLock --resource-group $(resource_prefix)-$(customer)-${{ parameters.environment }}b  --output tsv --query id)
+          az lock delete --ids $lockid
+          DATE=$(date '+%C%y-%m-%d' -d "$end_date-7 days")
+          echo $DATE
+          for i in `az snapshot list -g $(resource_prefix)-$(customer)-${{ parameters.environment }}b --query "[?timeCreated <= '$DATE'].name" -o tsv`
+          do
+              echo "Deleting snapshot $i"
+              az snapshot delete -g $(resource_prefix)-$(customer)-${{ parameters.environment }}b -n $i
+          done
+          az lock create --name rgLock --lock-type CanNotDelete --resource-group $(resource_prefix)-$(customer)-${{ parameters.environment }}b
+
+  - task: AzureCLI@2
+    displayName: copy dambucket disk
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        az config set extension.use_dynamic_install=yes_without_prompt
+        az datafactory pipeline create-run \
+          --factory-name "$(resource_prefix)-$(customer)-${{ parameters.environment }}bk" \
+          --resource-group "$(resource_prefix)-$(customer)-${{ parameters.environment }}" \
+          --name "Backup_Container"
+
+  - task: AzureCLI@2
+    displayName: copy fileshare
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        az datafactory pipeline create-run \
+          --factory-name "$(resource_prefix)-$(customer)-${{ parameters.environment }}bk" \
+          --resource-group "$(resource_prefix)-$(customer)-${{ parameters.environment }}" \
+          --name "Backup_Fileshare"
+
+  -  task: AzureCLI@2
+     displayName: export db
+     inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        failOnStandardError: true
+        inlineScript: |
+          DATE="$(date +"%Y-%m-%d-%H-%M")"
+
+          sqlpackage /a:Export \
+            /ssn:$(resource_prefix)-master-sql-server-$(resource_location).database.windows.net \
+            /sdn:$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db \
+            /su:$(resource_prefix)-master \
+            /sp:$(sql_admin_password) \
+            /tf:$(Agent.BuildDirectory)/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup-$DATE.bacpac
+
+          azcopy cp \
+            "$(Agent.BuildDirectory)/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup-$DATE.bacpac" \
+            "https://$(resource_prefix)$(customer)${{ parameters.environment }}b.blob.core.windows.net/$(customer)-${{ parameters.environment }}-sql-db-bk/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup-$DATE.bacpac?$(target_sas)" \
+            --recursive=true
+
+          rm -rf $(Agent.BuildDirectory)/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup-$DATE.bacpac

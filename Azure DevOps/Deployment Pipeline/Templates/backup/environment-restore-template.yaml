@@ -1,0 +1,101 @@
+parameters:
+### Mandatory ###
+  - name: environment
+    type: string
+  - name: sql_restore
+    type: boolean
+  - name: disk_restore
+    type: boolean
+  - name: fileshare_restore
+    type: boolean
+  - name: container_restore
+    type: boolean
+  - name: sql_backup_date
+    type: string
+  - name: disk_backup_date
+    type: string
+
+steps:
+    - task: AzureCLI@2
+      displayName: storage & sas key assign
+      inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        failOnStandardError: false
+        inlineScript: |
+          echo "environment ${{ parameters.environment }}"
+          storage_key=$(az storage account keys list -n $(resource_prefix)$(customer)${{ parameters.environment }} --query [0].value --output tsv)
+          echo "##vso[task.setvariable variable=target_storage_key;]$storage_key"
+
+          storage_key=$(az storage account keys list -n $(resource_prefix)$(customer)${{ parameters.environment }}b --query [0].value --output tsv)
+          echo "##vso[task.setvariable variable=source_storage_key;]$storage_key"
+
+          end=$(date -u -d "30 minutes" '+%Y-%m-%dT%H:%MZ')
+          sas=$(az storage container generate-sas --account-name $(resource_prefix)$(customer)${{ parameters.environment }}b -n $(customer)-${{ parameters.environment }}-sql-db-bk --https-only --permissions dlrw --expiry $end -o tsv)
+          echo "##vso[task.setvariable variable=source_sas;]$sas"
+
+    -  task: AzureCLI@2
+       condition: eq( '${{ parameters.sql_restore }}', 'true')
+       displayName: Restore sql server
+       inputs:
+          azureSubscription: $(arm_service_connection)
+          scriptType: bash
+          scriptLocation: inlineScript
+          failOnStandardError: true
+          inlineScript: |
+            azcopy cp \
+              "https://$(resource_prefix)$(customer)${{ parameters.environment }}b.blob.core.windows.net/$(customer)-${{ parameters.environment }}-sql-db-bk/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup-${{ parameters.sql_backup_date }}.bacpac?$(source_sas)" \
+              "$(Agent.BuildDirectory)/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup.bacpac" \
+              --recursive
+            
+            sqlpackage  /a:import /tsn:$(resource_prefix)-master-sql-server-$(resource_location).database.windows.net \
+              /tdn:$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db \
+              /tu:$(resource_prefix)-master \
+              /tp:$(sql_admin_password) \
+              /sf:$(Agent.BuildDirectory)/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup.bacpac
+
+    -  task: AzureCLI@2
+       displayName: Restore disk
+       condition: eq( '${{ parameters.disk_restore }}', 'true')
+       inputs:
+          azureSubscription: $(arm_service_connection)
+          scriptType: bash
+          scriptLocation: inlineScript
+          failOnStandardError: true
+          inlineScript: |
+            az disk create \
+            -g $(resource_prefix)-$(customer)-${{ parameters.environment }} \
+            -n $(resource_prefix)-$(customer)-${{ parameters.environment }}-disk-solr \
+            --source "/subscriptions/b5e91abb-a4b6-4400-95f0-8b7bae651e0f/resourceGroups/$(resource_prefix)-$(customer)-${{ parameters.environment }}b/providers/Microsoft.Compute/snapshots/$(customer)-${{ parameters.environment }}-disk-solr-ss-${{ parameters.disk_backup_date }}" \
+            --location $(resource_location) \
+            --sku Standard_LRS
+
+    - task: AzureCLI@2
+      displayName: Restore dambucket
+      condition: eq( '${{ parameters.container_restore }}', 'true')
+      inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az config set extension.use_dynamic_install=yes_without_prompt
+          az datafactory pipeline create-run \
+            --factory-name "$(resource_prefix)-$(customer)-${{ parameters.environment }}bk" \
+            --resource-group "$(resource_prefix)-$(customer)-${{ parameters.environment }}" \
+            --name "Restore_Container"
+
+    - task: AzureCLI@2
+      displayName: Restore fileshare
+      condition: eq( '${{ parameters.fileshare_restore }}', 'true')
+      inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az config set extension.use_dynamic_install=yes_without_prompt
+          az datafactory pipeline create-run \
+            --factory-name "$(resource_prefix)-$(customer)-${{ parameters.environment }}bk" \
+            --resource-group "$(resource_prefix)-$(customer)-${{ parameters.environment }}" \
+            --name "Restore_Fileshare"
+

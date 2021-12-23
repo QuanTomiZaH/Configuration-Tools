@@ -1,0 +1,47 @@
+# Triggers
+trigger: none
+
+##### Edit block #####
+variables:
+### Add library groups ###
+  - group: <add value> # The AKS cluster library group with AKS secrets
+  - template: <add value> # The customer specific library with application secrets
+### End Add library groups ###
+
+# Resource pool to use
+pool:
+  vmImage: ubuntu-latest
+
+# The Yaml file to consume
+resources:
+  repositories:
+    - repository: infrastructure
+      type: git
+      name: <name>
+      ref: master
+
+stages:
+  - stage: Deploy
+    jobs:
+      - deployment: <name>
+        displayName: Deploy Customer
+        environment: $(customer)-$(environment)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  path: $(customer)
+                - template: infrastructure/environment/environment-deployment-template.yaml@infrastructure
+                  parameters:
+                    run_azure_deployment: ${{ parameters.run_azure_deployment }}
+                    env_backup_resource: ${{ parameters.env_backup_resource }}
+                    environment: $(environment)
+                    dns_cname: $(dns_cname)
+                    application_instance_nameid: $(application_instance_nameid)
+                    pod_size: $(pod_size)
+                    log_level: $(log_level)
+                    appserver_image: $(appserver_image)
+                    app_version: $(app_version)
+#                    whitelisted_ip_range: $(whitelisted_ip_range)
+#                    webhook_teams_notification: $(webhook_teams_notification)

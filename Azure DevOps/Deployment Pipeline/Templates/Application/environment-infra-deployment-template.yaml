@@ -1,0 +1,271 @@
+# Parameters that need to be parsed in by the consumer pipeline
+parameters:
+### Mandatory ###
+  - name: environment # The environment to deploy e.g.: development
+    type: string
+  - name: dns_cname # The dns cname for this deployment
+    type: string
+    ### Optional ###
+  - name: git_branch # The git branch of cluster template to deploy
+    type: string
+    default: master # Here we have control over the default branch to deploy
+  - name: testautomation
+    type: boolean
+    default: false
+  - name: env_backup_resource
+    type: boolean
+    default: true
+
+steps:
+#### Checkout repositories ###
+  - checkout: <name>
+    path: <path>
+#### End checkout repositories ###
+
+### Azure Application Resources deployment ###
+  - task: AzureResourceGroupDeployment@2
+    displayName: Blob Storage
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      resourceGroupName: $(resource_prefix)-$(customer)-${{ parameters.environment }}
+      location: $(resource_location)
+      csmFile: $(Agent.BuildDirectory)/<path>.json
+      overrideParameters: |
+        -customer $(customer) 
+        -environment ${{ parameters.environment }} 
+        -resource_prefix $(resource_prefix) 
+        -resource_location $(resource_location) 
+
+  - task: AzureResourceGroupDeployment@2
+    condition: and(succeeded(), eq( '${{ parameters.testautomation }}', 'false'))
+    displayName: Disk Solr
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      resourceGroupName: $(resource_prefix)-$(customer)-${{ parameters.environment }}
+      location: $(resource_location)
+      csmFile: $(Agent.BuildDirectory)/<path>.json
+      overrideParameters: |
+        -customer $(customer) 
+        -environment ${{ parameters.environment }} 
+        -resource_prefix $(resource_prefix) 
+        -resource_location $(resource_location)
+
+  - task: AzureResourceGroupDeployment@2
+    displayName: Disk Conversion
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      resourceGroupName: $(resource_prefix)-$(customer)-${{ parameters.environment }}
+      location: $(resource_location)
+      csmFile: $(Agent.BuildDirectory)/<path>.json
+      overrideParameters: |
+       -customer $(customer) 
+       -environment ${{ parameters.environment }} 
+       -resource_prefix $(resource_prefix) 
+       -resource_location $(resource_location)
+
+  - task: AzureResourceGroupDeployment@2
+    displayName: Public IP
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      resourceGroupName: $(resource_prefix)-$(customer)-${{ parameters.environment }}
+      location: $(resource_location)
+      csmFile: $(Agent.BuildDirectory)/<path>.json
+      overrideParameters: |
+       -customer $(customer) 
+       -environment ${{ parameters.environment }} 
+       -resource_prefix $(resource_prefix) 
+       -resource_location $(resource_location)
+       -audit_enable $(audit_enable)
+
+  - task: AzureResourceGroupDeployment@2
+    displayName: Sql Database
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      resourceGroupName: $(resource_prefix)-master
+      location: $(resource_location)
+      csmFile: $(Agent.BuildDirectory)/<path>.json
+      overrideParameters: |
+        -customer $(customer) 
+        -environment ${{ parameters.environment }} 
+        -resource_prefix $(resource_prefix) 
+        -resource_location $(resource_location)
+        -audit_enable $(audit_enable)
+
+  - task: AzureCLI@2
+    displayName: SQL Users
+    inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az config set extension.use_dynamic_install=yes_without_prompt
+          tenantId=$(az account tenant list --query [].tenantId -o tsv)
+          az login --service-principal -u $(service_principal_appid) -p $(service_principal_secret) --tenant $tenantId
+          secret_exists=$(az keyvault secret list --vault-name $(resource_prefix)-master-key-vault --query "contains([].name, '$(customer)-${{ parameters.environment }}-db')")          
+          if [[ $secret_exists == false ]]; then
+            password=$(cat /dev/urandom | tr -dc 'A-Za-z0-9_!@#$%^&*()\-+=' | head -c16)
+            az keyvault secret set --vault-name $(resource_prefix)-master-key-vault --name $(customer)-${{ parameters.environment }}-db --value $password
+            # db user login creation
+            sqlcmd -S $(resource_prefix)-master-sql-server-$(resource_location).database.windows.net \
+              -U $(resource_prefix)-master \
+              -P $(sql_admin_password) -I \
+              -Q "CREATE LOGIN [$(customer)-${{ parameters.environment }}-db] WITH PASSWORD= '$password';"
+            # db user creation
+            sqlcmd -S $(resource_prefix)-master-sql-server-$(resource_location).database.windows.net \
+              -d $(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db \
+              -U $(resource_prefix)-master \
+              -P $(sql_admin_password) -I \
+              -Q "CREATE USER [$(customer)-${{ parameters.environment }}-db] FOR LOGIN [$(customer)-${{ parameters.environment }}-db] WITH DEFAULT_SCHEMA = [dbo];"
+            # db user role assignment
+            sqlcmd -S $(resource_prefix)-master-sql-server-$(resource_location).database.windows.net \
+              -d $(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db \
+              -U $(resource_prefix)-master -P $(sql_admin_password) -I \
+              -Q "ALTER ROLE db_datawriter ADD MEMBER [$(customer)-${{ parameters.environment }}-db];"
+          fi
+
+  - task: AzureResourceGroupDeployment@2
+    displayName: CNAME Record
+    inputs:
+      azureSubscription: $(arm_service_connection)
+      resourceGroupName: $(resource_prefix)-master
+      location: $(resource_location)
+      csmFile: $(Agent.BuildDirectory)/<path>.json
+      overrideParameters: |
+        -customer $(customer) 
+        -environment ${{ parameters.environment }} 
+        -resource_prefix $(resource_prefix) 
+        -dns_zone_name $(dns_zone_name) 
+        -dns_cname ${{ parameters.dns_cname }} 
+        -resource_location $(resource_location)
+### End Azure Application Resources deployment ###
+
+### Azure Backup Resources Deployment ###
+  - ${{ if eq(parameters.env_backup_resource, true) }}:
+    - task: AzureResourceManagerTemplateDeployment@3
+      displayName: Backup Storage account creation
+      inputs:
+        deploymentScope: 'Resource Group'
+        azureResourceManagerConnection: '$(arm_service_connection)'
+        action: 'Create Or Update Resource Group'
+        resourceGroupName: '$(resource_prefix)-$(customer)-${{ parameters.environment }}b'
+        location: '$(resource_location)'
+        templateLocation: 'Linked artifact'
+        csmFile: '$(Agent.BuildDirectory)/<path>.json'
+        overrideParameters: |
+          -customer $(customer) 
+          -environment ${{ parameters.environment }} 
+          -resource_prefix $(resource_prefix) 
+          -resource_location $(resource_location)
+        deploymentMode: 'Incremental'
+
+    - task: AzureCLI@2
+      displayName: storage key assign
+      inputs:
+          azureSubscription: $(arm_service_connection)
+          scriptType: bash
+          scriptLocation: inlineScript
+          failOnStandardError: true
+          inlineScript: |
+            storage_key=$(az storage account keys list -n $(resource_prefix)$(customer)${{ parameters.environment }}b --query [0].value --output tsv)
+            echo "##vso[task.setvariable variable=target_storage_key;]$storage_key"
+            storage_key=$(az storage account keys list -n $(resource_prefix)$(customer)${{ parameters.environment }} --query [0].value --output tsv)
+            echo "##vso[task.setvariable variable=source_storage_key;]$storage_key"
+
+    - task: AzureResourceManagerTemplateDeployment@3
+      displayName: DF creation
+      inputs:
+        deploymentScope: 'Resource Group'
+        azureResourceManagerConnection: '$(arm_service_connection)'
+        action: 'Create Or Update Resource Group'
+        resourceGroupName: '$(resource_prefix)-$(customer)-${{ parameters.environment }}'
+        location: '$(resource_location)'
+        templateLocation: 'Linked artifact'
+        csmFile: '$(Agent.BuildDirectory)/<path>.json'
+        overrideParameters: |
+          -factory_name $(resource_prefix)-$(customer)-${{ parameters.environment }}bk 
+          -source_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }};AccountKey=$(source_storage_key);EndpointSuffix=core.windows.net 
+          -backup_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }}b;AccountKey=$(target_storage_key);EndpointSuffix=core.windows.net 
+          -resource_location $(resource_location)
+        deploymentMode: 'Incremental'
+
+    - task: AzureResourceManagerTemplateDeployment@3
+      displayName: DF linkedservice creation
+      inputs:
+        deploymentScope: 'Resource Group'
+        azureResourceManagerConnection: '$(arm_service_connection)'
+        action: 'Create Or Update Resource Group'
+        resourceGroupName: '$(resource_prefix)-$(customer)-${{ parameters.environment }}'
+        location: '$(resource_location)'
+        templateLocation: 'Linked artifact'
+        csmFile: '$(Agent.BuildDirectory)/<path>.json'
+        overrideParameters: |
+          -factory_name $(resource_prefix)-$(customer)-${{ parameters.environment }}bk 
+          -source_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }};AccountKey=$(source_storage_key);EndpointSuffix=core.windows.net 
+          -backup_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }}b;AccountKey=$(target_storage_key);EndpointSuffix=core.windows.net 
+          -resource_location $(resource_location)
+        deploymentMode: 'Incremental'
+
+    - task: AzureResourceManagerTemplateDeployment@3
+      displayName: DF dataset creation
+      inputs:
+        deploymentScope: 'Resource Group'
+        azureResourceManagerConnection: '$(arm_service_connection)'
+        action: 'Create Or Update Resource Group'
+        resourceGroupName: '$(resource_prefix)-$(customer)-${{ parameters.environment }}'
+        location: '$(resource_location)'
+        templateLocation: 'Linked artifact'
+        csmFile: '$(Agent.BuildDirectory)/<path>.json'
+        overrideParameters: |
+          -factory_name $(resource_prefix)-$(customer)-${{ parameters.environment }}bk 
+          -source_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }};AccountKey=$(source_storage_key);EndpointSuffix=core.windows.net 
+          -backup_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }}b;AccountKey=$(target_storage_key);EndpointSuffix=core.windows.net 
+          -resource_location $(resource_location)
+        deploymentMode: 'Incremental'
+
+    - task: AzureResourceManagerTemplateDeployment@3
+      displayName: DF pipeline creation
+      inputs:
+        deploymentScope: 'Resource Group'
+        azureResourceManagerConnection: '$(arm_service_connection)'
+        action: 'Create Or Update Resource Group'
+        resourceGroupName: '$(resource_prefix)-$(customer)-${{ parameters.environment }}'
+        location: '$(resource_location)'
+        templateLocation: 'Linked artifact'
+        csmFile: '$(Agent.BuildDirectory)/<path>.json'
+        overrideParameters: |
+          -factory_name $(resource_prefix)-$(customer)-${{ parameters.environment }}bk 
+          -source_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }};AccountKey=$(source_storage_key);EndpointSuffix=core.windows.net 
+          -backup_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }}b;AccountKey=$(target_storage_key);EndpointSuffix=core.windows.net 
+          -resource_location $(resource_location)
+          -resource_prefix $(resource_prefix)
+          -audit_enable $(audit_enable)
+        deploymentMode: 'Incremental'
+
+    - task: AzureResourceManagerTemplateDeployment@3
+      displayName: DF Restore pipeline creation
+      inputs:
+        deploymentScope: 'Resource Group'
+        azureResourceManagerConnection: '$(arm_service_connection)'
+        action: 'Create Or Update Resource Group'
+        resourceGroupName: '$(resource_prefix)-$(customer)-${{ parameters.environment }}'
+        location: '$(resource_location)'
+        templateLocation: 'Linked artifact'
+        csmFile: '$(Agent.BuildDirectory)/<path>.json'
+        overrideParameters: | 
+         -factory_name $(resource_prefix)-$(customer)-${{ parameters.environment }}bk 
+         -source_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }};AccountKey=$(source_storage_key);EndpointSuffix=core.windows.net 
+         -backup_storage_connection_string DefaultEndpointsProtocol=https;AccountName=$(resource_prefix)$(customer)${{ parameters.environment }}b;AccountKey=$(target_storage_key);EndpointSuffix=core.windows.net 
+         -resource_location $(resource_location)
+        deploymentMode: 'Incremental'
+
+    -  task: AzureCLI@2
+       displayName: Backup  Resource group lock
+       inputs:
+          azureSubscription: $(arm_service_connection)
+          scriptType: bash
+          scriptLocation: inlineScript
+          failOnStandardError: true
+          inlineScript: |
+            az login --service-principal --username $(service_principal_appid) --password $(service_principal_secret) --tenant <name>
+            az lock create --name rgLock --lock-type CanNotDelete --resource-group $(resource_prefix)-$(customer)-${{ parameters.environment }}b
+### End Azure Backup Resources deployment ###

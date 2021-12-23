@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resource_location": {
+      "type": "String"
+    },
+    "factory_name": {
+      "type": "string"
+    },
+    "source_storage_connection_string": {
+    "type": "secureString",
+    "metadata": "Secure string for 'connectionString' of 'SourceStorage'"
+    },
+    "backup_storage_connection_string": {
+    "type": "secureString",
+    "metadata": "Secure string for 'connectionString' of 'SourceStorage'"
+    },
+    "fileshares": {
+      "type": "array",
+      "defaultValue": [
+        "application",
+        "conversion",
+        "search",
+        "storage"
+      ]
+    }
+  },
+  "variables": {
+    "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factory_name'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.DataFactory/factories",
+      "apiVersion": "2018-06-01",
+      "name": "[parameters('factory_name')]",
+      "location": "[parameters('resource_location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      }
+    }           
+  ]
+}

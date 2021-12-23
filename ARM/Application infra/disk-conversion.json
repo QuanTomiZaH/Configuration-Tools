@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "customer": {
+      "type": "String"
+    },
+    "resource_prefix": {
+      "type": "String"
+    },
+    "environment": {
+      "type": "String"
+    },
+    "resource_location": {
+      "type": "String"
+    }
+  },
+  "variables": {
+    "diskName": "[concat(parameters('resource_prefix'), '-', parameters('customer'), '-', parameters('environment'), '-disk-conversion')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Compute/disks",
+      "apiVersion": "2019-07-01",
+      "name": "[variables('diskName')]",
+      "location": "[parameters('resource_location')]",
+      "tags": {
+        "Customer": "[parameters('customer')]",
+        "Environment": "[parameters('environment')]"
+      },
+      "sku": {
+        "name": "Premium_LRS",
+        "tier": "Premium"
+      },
+      "properties": {
+        "hyperVGeneration": "V1",
+        "creationData": {
+          "createOption": "Empty"
+        },
+        "diskSizeGB": 100,
+        "diskIOPSReadWrite": 120,
+        "diskMBpsReadWrite": 25,
+        "encryption": {
+          "type": "EncryptionAtRestWithPlatformKey"
+        }
+      }
+    }
+  ]
+}

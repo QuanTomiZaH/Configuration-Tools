@@ -1,0 +1,40 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "customer": {
+            "type": "String"
+        },
+        "resource_prefix": {
+            "type": "String"
+        },
+        "environment": {
+            "type": "String"
+        },
+        "dns_zone_name": {
+            "type": "String"
+        },
+        "dns_cname": {
+            "type": "String"
+        },
+        "resource_location": {
+            "type": "String"
+        }
+    },
+    "variables": {
+        "CNAME": "[concat(parameters('resource_prefix'), '-', parameters('customer'), '-', parameters('environment'), '.', parameters('resource_location'), '.cloudapp.azure.com')]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/dnszones/CNAME",
+            "apiVersion": "2018-05-01",
+            "name": "[concat(parameters('dns_zone_name'), '/', parameters('dns_cname'))]",
+            "properties": {
+                "TTL": 1800,
+                "CNAMERecord": {
+                    "cname": "[variables('CNAME')]"
+                }
+            }
+        }
+    ]
+}

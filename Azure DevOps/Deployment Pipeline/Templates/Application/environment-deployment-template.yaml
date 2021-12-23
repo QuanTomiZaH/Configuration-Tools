@@ -1,0 +1,87 @@
+# Parameters that need to be parsed in by the consumer pipeline
+parameters:
+### Mandatory ###
+  - name: environment # The environment to deploy e.g.: development
+    type: string
+  - name: dns_cname # The dns cname for this deployment
+    type: string
+  - name: application_instance_nameid
+    type: string
+  - name: run_azure_deployment
+    type: boolean
+
+### Optional ###
+  - name: whitelisted_ip_range # The IP range of the customer to whitelist. This is a comma separated CIDR block. Example: 0.0.0.0/32,1.1.1.1
+    type: string
+    default: '0.0.0.0/0' # This is the default IP range (entire IPv4 internet)
+  - name: acr_service_connection_target # The name of the ACR service connection
+    type: string
+    default: ''
+  - name: app_version # The app version of the application to deploy
+    type: string
+    default: $(Build.SourceBranchName)
+  - name: pod_size # The pod size of the ContentHub application
+    type: string
+    default: xsmall # Here we have control over the default pod size to deploy
+  - name: git_branch # The git branch of cluster template to deploy
+    type: string
+    default: master # Here we have control over the default branch to deploy
+  - name: type
+    type: string
+    default: prod
+  - name: cert_manager_version # The cert manager version
+    type: string
+    default: v1.4.0 # Here we have control over the default version to deploy
+  - name: log_level
+    type: string
+    default: WARN
+  - name: appserver_image # The image to use, options are: "contenthub-application" and "contenthub-application-extended"
+    type: string
+    default: <name>
+  - name: jsessionid_samesite # Setting the nginx samesite cookie settings. Options are: "None", "Lax" and "Strict"
+    type: string
+    default: none
+  - name: env_backup_resource
+    type: boolean
+    default: true
+  - name: webhook_teams_notification # The webhook link for teams notifications
+    type: string
+    default: false
+
+jobs:
+- deployment: DeployContentHub
+  displayName: Deploy ContentHub
+  environment: $(customer)
+  strategy:
+    runOnce:
+      deploy:
+        steps:
+          - checkout: self
+            path: $(customer)
+
+        ### Azure Infra provisoning ###
+          - ${{ if eq(parameters.run_azure_deployment, true) }}:
+            - template: environment-infra-deployment-template.yaml@infrastructure
+              parameters:
+                environment: ${{ parameters.environment }}
+                dns_cname: ${{ parameters.dns_cname }}
+                env_backup_resource: ${{ parameters.env_backup_resource }}
+                git_branch: ${{ parameters.git_branch }}  
+
+        ### Application deployment ###
+          - template: environment-app-deployment-template.yaml@infrastructure
+            parameters:
+              environment: ${{ parameters.environment }}
+              dns_cname: ${{ parameters.dns_cname }}
+              acr_service_connection_target: ${{ parameters.acr_service_connection_target }}
+              application_instance_nameid: ${{ parameters.application_instance_nameid }}
+              whitelisted_ip_range: ${{ parameters.whitelisted_ip_range }}
+              log_level: ${{ parameters.log_level }}
+              appserver_image: ${{ parameters.appserver_image }}
+              app_version: ${{ parameters.app_version }}
+              webhook_teams_notification: ${{ parameters.webhook_teams_notification }}
+              jsessionid_samesite: ${{ parameters.jsessionid_samesite }}
+              cert_manager_version: ${{ parameters.cert_manager_version }}
+              pod_size: ${{ parameters.pod_size }}
+              git_branch: ${{ parameters.git_branch }}
+              

@@ -1,0 +1,479 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resource_location": {
+      "type": "String"
+    },
+    "factory_name": {
+      "type": "string"
+    },
+    "source_storage_connection_string": {
+    "type": "secureString",
+    "metadata": "Secure string for 'connectionString' of 'SourceStorage'"
+    },
+    "backup_storage_connection_string": {
+    "type": "secureString",
+    "metadata": "Secure string for 'connectionString' of 'SourceStorage'"
+    },
+    "fileshares": {
+      "type": "array",
+      "defaultValue": [
+        "application",
+        "conversion",
+        "search",
+        "storage"
+		]
+    }
+  },
+  "variables": {
+    "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factory_name'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.DataFactory/factories",
+      "apiVersion": "2018-06-01",
+      "name": "[parameters('factory_name')]",
+      "location": "[parameters('resource_location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      }
+    },
+    {
+        "name": "[concat(parameters('factory_name'), '/SourceBlobAccount')]",
+        "type": "Microsoft.DataFactory/factories/linkedServices",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "annotations": [],
+            "type": "AzureBlobStorage",
+            "typeProperties": {
+                "connectionString": "[parameters('source_storage_connection_string')]"
+            }
+        },
+        "dependsOn": [
+            "[resourceId('Microsoft.DataFactory/factories', parameters('factory_name'))]"
+      ]
+    },
+    {
+        "name": "[concat(parameters('factory_name'), '/Source_dambucket_DS')]",
+        "type": "Microsoft.DataFactory/factories/datasets",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "linkedServiceName": {
+                "referenceName": "SourceBlobAccount",
+                "type": "LinkedServiceReference"
+            },
+            "annotations": [],
+            "type": "Binary",
+            "typeProperties": {
+                "location": {
+                    "type": "AzureBlobStorageLocation",
+                    "container": "dambucket"
+                }
+            }
+        },
+        "dependsOn": [
+            "[concat(variables('factoryId'), '/linkedServices/SourceBlobAccount')]"
+        ]
+    },
+    {
+        "name": "[concat(parameters('factory_name'), '/BackupBlobAccount')]",
+        "type": "Microsoft.DataFactory/factories/linkedServices",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "annotations": [],
+            "type": "AzureBlobStorage",
+            "typeProperties": {
+                "connectionString": "[parameters('backup_storage_connection_string')]"
+            }
+        },
+        "dependsOn": [
+            "[resourceId('Microsoft.DataFactory/factories', parameters('factory_name'))]"
+      ]
+    },
+    {
+        "name": "[concat(parameters('factory_name'), '/Backup_dambucket_DS')]",
+        "type": "Microsoft.DataFactory/factories/datasets",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "linkedServiceName": {
+                "referenceName": "BackupBlobAccount",
+                "type": "LinkedServiceReference"
+            },
+            "annotations": [],
+            "type": "Binary",
+            "typeProperties": {
+                "location": {
+                    "type": "AzureBlobStorageLocation",
+                    "container": "dambucket"
+                }
+            }
+        },
+        "dependsOn": [
+            "[concat(variables('factoryId'), '/linkedServices/BackupBlobAccount')]"
+        ]
+    },
+    {
+        "name": "[concat(parameters('factory_name'), '/Source', parameters('fileshares')[copyIndex('filesharecopy')])]",
+        "type": "Microsoft.DataFactory/factories/linkedServices",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "annotations": [],
+            "type": "AzureFileStorage",
+            "typeProperties": {
+                "connectionString": "[parameters('source_storage_connection_string')]",
+                "fileShare": "[parameters('fileshares')[copyIndex('filesharecopy')]]"
+            }        
+        },
+        "copy": {
+            "name": "filesharecopy",
+            "count": 4
+        }
+    },
+    {
+        "name": "[concat(parameters('factory_name'), '/Source_', parameters('fileshares')[copyIndex('filesharecopy')], '_fileshare_DS')]",
+        "type": "Microsoft.DataFactory/factories/datasets",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "linkedServiceName": {
+                "referenceName": "[concat('Source', parameters('fileshares')[copyIndex('filesharecopy')])]",
+                "type": "LinkedServiceReference"
+            },
+            "annotations": [],
+            "type": "Binary",
+            "typeProperties": {
+                "location": {
+                    "type": "AzureFileStorageLocation"
+                }
+            }
+        },
+        "copy": {
+            "name": "filesharecopy",
+            "count": 4
+        }  
+    },
+    {
+        "name": "[concat(parameters('factory_name'), '/Backup', parameters('fileshares')[copyIndex('filesharecopy')])]",
+        "type": "Microsoft.DataFactory/factories/linkedServices",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "annotations": [],
+            "type": "AzureFileStorage",
+            "typeProperties": {
+                "connectionString": "[parameters('backup_storage_connection_string')]",
+                "fileShare": "[parameters('fileshares')[copyIndex('filesharecopy')]]"
+            }        
+        },
+        "copy": {
+            "name": "filesharecopy",
+            "count": 4
+        }
+    },
+    {
+        "name": "[concat(parameters('factory_name'), '/Backup_', parameters('fileshares')[copyIndex('filesharecopy')], '_fileshare_DS')]",
+        "type": "Microsoft.DataFactory/factories/datasets",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "linkedServiceName": {
+                "referenceName": "[concat('Backup', parameters('fileshares')[copyIndex('filesharecopy')])]",
+                "type": "LinkedServiceReference"
+            },
+            "annotations": [],
+            "type": "Binary",
+            "typeProperties": {
+                "location": {
+                    "type": "AzureFileStorageLocation"
+                }
+            }
+        },
+        "copy": {
+            "name": "filesharecopy",
+            "count": 4
+        }  
+    },
+
+    {
+        "name": "[concat(parameters('factory_name'), '/Restore_Container')]",
+        "type": "Microsoft.DataFactory/factories/pipelines",
+        "apiVersion": "2018-06-01",
+        "properties": {
+            "activities": [
+                {
+                    "name": "Dambucket_Restore",
+                    "type": "Copy",
+                    "dependsOn": [],
+                    "policy": {
+                        "timeout": "7.00:00:00",
+                        "retry": 0,
+                        "retryIntervalInSeconds": 30,
+                        "secureOutput": false,
+                        "secureInput": false
+                    },
+                    "userProperties": [],
+                    "typeProperties": {
+                        "source": {
+                            "type": "BinarySource",
+                            "storeSettings": {
+                                "type": "AzureBlobStorageReadSettings",
+                                "recursive": true
+                            },
+                            "formatSettings": {
+                                "type": "BinaryReadSettings"
+                            }
+                        },
+                        "sink": {
+                            "type": "BinarySink",
+                            "storeSettings": {
+                                "type": "AzureBlobStorageWriteSettings",
+                                "copyBehavior": "PreserveHierarchy"
+                            }
+                        },
+                        "enableStaging": false
+                    },
+                    "inputs": [
+                        {
+                            "referenceName": "Backup_dambucket_DS",
+                            "type": "DatasetReference",
+                            "parameters": {}
+                        }
+                    ],
+                    "outputs": [
+                        {
+                            "referenceName": "Source_dambucket_DS",
+                            "type": "DatasetReference",
+                            "parameters": {}
+                        }
+                    ]
+                }
+                
+            ],
+            "annotations": []
+        },
+        "dependsOn": [
+            "[concat(variables('factoryId'), '/datasets/Source_dambucket_DS')]",
+            "[concat(variables('factoryId'), '/datasets/Backup_dambucket_DS')]"
+        ]
+    },
+    {
+            "name": "[concat(parameters('factory_name'), '/Restore_Fileshare')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "Application_FS_Restore",
+                        "type": "Copy",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "7.00:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "BinarySource",
+                                "storeSettings": {
+                                    "type": "AzureFileStorageReadSettings",
+                                    "recursive": true
+                                },
+                                "formatSettings": {
+                                    "type": "BinaryReadSettings"
+                                }
+                            },
+                            "sink": {
+                                "type": "BinarySink",
+                                "storeSettings": {
+                                    "type": "AzureFileStorageWriteSettings",
+                                    "copyBehavior": "PreserveHierarchy"
+                                }
+                            },
+                            "enableStaging": false
+                        },
+                        "inputs": [
+                            {
+                                "referenceName": "Backup_application_fileshare_DS",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "referenceName": "Source_application_fileshare_DS",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Conversion_FS_Restore",
+                        "type": "Copy",
+                        "dependsOn": [
+                            {
+                                "activity": "Application_FS_Restore",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "7.00:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "BinarySource",
+                                "storeSettings": {
+                                    "type": "AzureFileStorageReadSettings",
+                                    "recursive": true
+                                },
+                                "formatSettings": {
+                                    "type": "BinaryReadSettings"
+                                }
+                            },
+                            "sink": {
+                                "type": "BinarySink",
+                                "storeSettings": {
+                                    "type": "AzureFileStorageWriteSettings",
+                                    "copyBehavior": "PreserveHierarchy"
+                                }
+                            },
+                            "enableStaging": false
+                        },
+                        "inputs": [
+                            {
+                                "referenceName": "Backup_conversion_fileshare_DS",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "referenceName": "Source_conversion_fileshare_DS",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Stroage_FS_Restore",
+                        "type": "Copy",
+                        "dependsOn": [
+                            {
+                                "activity": "Conversion_FS_Restore",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "7.00:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "BinarySource",
+                                "storeSettings": {
+                                    "type": "AzureFileStorageReadSettings",
+                                    "recursive": true
+                                },
+                                "formatSettings": {
+                                    "type": "BinaryReadSettings"
+                                }
+                            },
+                            "sink": {
+                                "type": "BinarySink",
+                                "storeSettings": {
+                                    "type": "AzureFileStorageWriteSettings",
+                                    "copyBehavior": "PreserveHierarchy"
+                                }
+                            },
+                            "enableStaging": false
+                        },
+                        "inputs": [
+                            {
+                                "referenceName": "Backup_storage_fileshare_DS",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "referenceName": "Source_storage_fileshare_DS",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Search_FS_Restore",
+                        "type": "Copy",
+                        "dependsOn": [
+                            {
+                                "activity": "Stroage_FS_Restore",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "7.00:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "BinarySource",
+                                "storeSettings": {
+                                    "type": "AzureFileStorageReadSettings",
+                                    "recursive": true
+                                },
+                                "formatSettings": {
+                                    "type": "BinaryReadSettings"
+                                }
+                            },
+                            "sink": {
+                                "type": "BinarySink",
+                                "storeSettings": {
+                                    "type": "AzureFileStorageWriteSettings",
+                                    "copyBehavior": "PreserveHierarchy"
+                                }
+                            },
+                            "enableStaging": false
+                        },
+                        "inputs": [
+                            {
+                                "referenceName": "Backup_search_fileshare_DS",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "referenceName": "Source_search_fileshare_DS",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ]
+                    }
+                ],
+                "annotations": []
+            },
+            "dependsOn": []
+        }       
+          
+  ]
+}
