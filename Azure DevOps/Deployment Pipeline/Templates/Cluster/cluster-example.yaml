@@ -1,0 +1,54 @@
+# Triggers
+trigger: none
+
+##### Edit block #####
+variables:
+  ## Add library group ##
+  - group: '' # Add the library group containing AKS secrets/configuration here
+## End Add library groups ##
+
+## Add service connection ##
+  - name: service_connection # The Service Connection to use
+    value: ''
+## End Add service connection ##
+
+## Add deployment value(s) ##
+  - name: resource_location # The azure location to deploy to
+    value: ''
+  - name: resource_prefix
+    value: ''
+## End Add deployment value(s) ##
+
+##### End Edit block #####
+
+# Resource pool to use
+pool:
+  vmImage: 'ubuntu-latest'
+
+# The Yaml file to consume
+resources:
+  repositories:
+    - repository: infrastructure
+      type: git
+      name: <name>
+      ref: master # Here you can change the branch of the pipeline to deploy #
+
+# Add the stages below. Duplicate the stage block when the customer requires multiple deployments.
+stages:
+  - stage: Production
+    jobs:
+      - deployment: Deploy_AKS_Resources
+        environment: $(resource_prefix)_AKS_Resources
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: infrastructure/kubernetes_resources/cluster-template.yaml@infrastructure
+                  parameters:
+                    resource_prefix: $(resource_prefix)
+                    service_connection: $(service_connection)
+                    resource_location: $(resource_location)
+                    sql_administrator_login_secret: $(sql_admin_password)
+                    service_principal_appid: $(service_principal_appid)
+                    service_principal_secret: $(service_principal_secret)
+                    dns_zone_name: $(dns_zone_name)

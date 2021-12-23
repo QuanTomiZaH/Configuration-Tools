@@ -38,8 +38,8 @@ parameters:
     default: 107374182400 # This is exactly 100 Gibibyte #
 
 steps:
-  - checkout: git://ContentHub/contenthub-infra@${{ parameters.git_branch }}
-    path: contenthub-infra
+  - checkout: git://<name>@${{ parameters.git_branch }}
+    path: <name>
 
 ### Create AKS Cluster ###
   - task: AzureResourceGroupDeployment@2
@@ -48,7 +48,7 @@ steps:
       azureSubscription: ${{ parameters.service_connection }}
       resourceGroupName: ${{ parameters.resource_prefix }}-master
       location: ${{ parameters.resource_location }}
-      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/aks-cluster.json
+      csmFile: $(Agent.BuildDirectory)/<path>.json
       overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -service_principal_appid ${{ parameters.service_principal_appid }} -service_principal_secret ${{ parameters.service_principal_secret }} -kube_version ${{ parameters.kube_version }} -resource_location ${{ parameters.resource_location }}
 ### End Create AKS Cluster ###
 
@@ -59,7 +59,7 @@ steps:
       azureSubscription: ${{ parameters.service_connection }}
       resourceGroupName: ${{ parameters.resource_prefix }}-master
       location: ${{ parameters.resource_location }}
-      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/dns-zone.json
+      csmFile: $(Agent.BuildDirectory)/<path>.json
       overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -dns_zone_name ${{ parameters.dns_zone_name }}
 ### End Deploy DNS zone ###
 
@@ -121,7 +121,7 @@ steps:
       azureSubscription: ${{ parameters.service_connection }}
       resourceGroupName: ${{ parameters.resource_prefix }}-master
       location: ${{ parameters.resource_location }}
-      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/sql-server.json
+      csmFile: $(Agent.BuildDirectory)/<path>.json
       overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -sql_administrator_login_secret ${{ parameters.sql_administrator_login_secret }} -resource_location ${{ parameters.resource_location }}
 ### End Deploy SQL Server ###
 
@@ -133,7 +133,7 @@ steps:
       azureSubscription: ${{ parameters.service_connection }}
       resourceGroupName: ${{ parameters.resource_prefix }}-master
       location: ${{ parameters.resource_location }}
-      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/elastic-pool.json
+      csmFile: $(Agent.BuildDirectory)/<path>.json
       overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -elastic_pool_dtu_capacity ${{ parameters.elastic_pool_dtu_capacity }} -elastic_pool_db_capacity ${{ parameters.elastic_pool_db_capacity }} -resource_location ${{ parameters.resource_location }}
 ### End Deploy SQL Server ###
 
@@ -145,7 +145,7 @@ steps:
       azureSubscription: ${{ parameters.service_connection }}
       resourceGroupName: ${{ parameters.resource_prefix }}-master
       location: ${{ parameters.resource_location }}
-      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/key-vault.json
+      csmFile: $(Agent.BuildDirectory)/<path>.json
       overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -resource_location ${{ parameters.resource_location }} -objectId ${{ parameters.object_id }}
 ### End Deploy Key vault ###
 
@@ -170,7 +170,7 @@ steps:
       chartType: FilePath
       chartPath: $(Agent.BuildDirectory)/grafana-cloud/grafana-agent
       releaseName: grafana-agent
-      valueFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/monitoring/grafana-values.yaml
+      valueFile: $(Agent.BuildDirectory)/<path>.yaml
       waitForExecution: false
       failOnStderr: true
       overrideValues: clusterLabel=${{ parameters.resource_prefix }}-master-cluster-${{ parameters.resource_location }},logs.password=${{ parameters.grafana_log_api }}
