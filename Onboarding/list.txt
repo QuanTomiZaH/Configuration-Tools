@@ -1,0 +1,25 @@
+Onboarding walk through:
+	- Get to know each other
+	- Experience/prior knowledge
+
+
+Technical details:
+	- Cloud Architecture / design
+		○ Overview
+		○ Tooling of choice
+	- Template Architecture / design
+		○ Overview
+		○ Repositories
+	- Resource flow / Pipelines
+		○ End-to-end Pipeline example showcase
+	- Showcase current state of development and upcoming work
+
+
+Contact information:
+ - Person a and role
+ - Person b and role
+
+Tasks to get acquainted with the pipelines / infrastructure
+  - Build something
+  - Deploy something
+  - Destroy something
