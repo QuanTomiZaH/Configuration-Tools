@@ -1,0 +1,54 @@
+#trigger
+trigger: none
+
+# This will run 12:00AM on the first of every month
+schedules:
+- cron: "0 0 1 * *"
+  displayName: Montly cron job
+  branches:
+    include:
+    - develop
+
+parameters:
+  - name: image
+    displayName: On Premise server
+    type: string
+    default: <name>
+    values:
+    - <name>
+    - ubuntu-latest
+
+jobs:
+- job: RenewCert
+  displayName: Lets Encrypt Certificate renew
+  pool: ${{ parameters.image }}
+  steps:    
+    - task: AzureCLI@2
+      condition: eq( variables['Agent.OS'], 'Windows_NT')
+      displayName: Windows certificate renewal
+      inputs:
+        azureSubscription: CH_Cleanup_SC
+        scriptType: ps
+        scriptLocation: inlineScript
+        inlineScript: |
+            echo "Certificate renewing at "$(date)
+            certbot certonly --text --non-interactive --manual-public-ip-logging-ok --agree-tos --manual `
+              -d <name> `
+              --preferred-challenges=dns `
+              --manual-auth-hook $(Build.SourcesDirectory)/miscellaneous/certificate/authenticator.ps1 
+            Restart-Service -Name "nginx"
+            
+       
+    - task: AzureCLI@2
+      condition: eq( variables['Agent.OS'], 'Linux')
+      displayName: Linux certificate renewal
+      inputs:
+        azureSubscription: CH_Cleanup_SC
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Certificate renewing at "$(date)
+          certbot certonly --text --non-interactive --manual-public-ip-logging-ok --agree-tos --manual \
+            -d <name> \
+            --preferred-challenges=dns \
+            --manual-auth-hook $(Build.SourcesDirectory)/miscellaneous/certificate/certbot_dns_auth.sh
