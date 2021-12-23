@@ -1,0 +1,114 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "resource_prefix": {
+            "type": "string"
+        },
+        "resource_location": {
+            "type": "string"
+        },
+        "objectId": {
+            "type": "string"
+        }
+    },
+    "variables": {
+        "key_vaultName": "[concat(parameters('resource_prefix'), '-master-key-vault')]",
+        "storageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', concat(parameters('resource_prefix'), 'audit', parameters('resource_location')))]",
+        "accessPolicies": [
+            {
+                "objectId": "[parameters('objectId')]",
+                "tenantId": "[subscription().tenantId]",
+                "permissions": {
+                    "keys": [
+                        "Get",
+                        "List",
+                        "Update",
+                        "Create",
+                        "Import",
+                        "Delete"
+                    ],
+                    "secrets": [
+                        "Get",
+                        "List",
+                        "Set",
+                        "Delete"
+                    ],
+                    "certificates": [
+                        "Get",
+                        "List",
+                        "Update",
+                        "Create",
+                        "Import",
+                        "Delete"
+                    ]
+                },
+                "applicationId": null
+            }
+            ]
+    },
+    "resources": [
+        {
+            "apiVersion": "2021-05-01-preview",
+            "name": "[variables('key_vaultName')]",
+            "location": "[parameters('resource_location')]",
+            "type": "Microsoft.KeyVault/vaults",
+            "properties": {
+                "enabledForDeployment": false,
+                "enabledForTemplateDeployment": false,
+                "enabledForDiskEncryption": false,
+                "enableRbacAuthorization": false,
+                "tenantId": "[subscription().tenantId]",
+                "accessPolicies": "[variables('accessPolicies')]",
+                "sku": {
+                    "name": "standard",
+                    "family": "A"
+                },
+                "enableSoftDelete": false,
+                "softDeleteRetentionInDays": 90
+            },
+            "resources": [
+                {
+                  "type": "Microsoft.KeyVault/vaults/providers/diagnosticSettings",
+                  "apiVersion": "2017-05-01-preview",
+                  "name": "[variables('key_vaultName')]",
+                  "dependsOn": [],
+                  "properties": {
+                    "storageAccountId": "[variables('storageAccountId')]",
+                    "logs": [
+                      {
+                        "categoryGroup": "allLogs",
+                        "enabled": true,
+                        "retentionPolicy": {
+                          "days": 30,
+                          "enabled": true
+                        }
+                      },
+                      {
+                        "categoryGroup": "audit",
+                        "enabled": true,
+                        "retentionPolicy": {
+                          "days": 30,
+                          "enabled": true
+                        }
+                      }           
+                    ],
+                    "metrics": [
+                      {
+                        "category": "AllMetrics",
+                        "enabled": true,
+                        "retentionPolicy": {
+                          "days": 30,
+                          "enabled": true
+                        }
+                      }
+                    ]
+                  }
+                }
+            ],            
+            "tags": {},
+            "dependsOn": []
+        }
+    ],
+    "outputs": {}
+}

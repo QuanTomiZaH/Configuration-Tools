@@ -1,0 +1,141 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "resource_prefix": {
+        "type": "string"
+      },
+      "service_principal_appid": {
+        "type": "string",
+        "metadata": {
+          "description": "The appid of the service-principle for the aks cluster."
+        }
+      },
+      "service_principal_secret": {
+        "type": "string",
+        "metadata": {
+          "description": "The secret of the service-principle for the aks cluster."
+        }
+      },
+      "kube_version": {
+        "type": "string",
+        "metadata": {
+          "description": "The kubernetes version for the aks cluster."
+        }
+      },
+      "resource_location": {
+        "type": "String"
+      },
+      "audit_enable": {
+      "type": "bool",
+      "defaultValue": "false"
+      }
+    },
+    "variables": {
+      "storageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', concat(parameters('resource_prefix'), 'audit', parameters('resource_location')))]",
+      "log_analytics_workspacesId": "[resourceId('Microsoft.OperationalInsights/workspaces', concat(parameters('resource_prefix'), 'audit', parameters('resource_location')))]"
+    },
+    "resources": [
+      {
+        "type": "Microsoft.ContainerService/managedClusters",
+        "apiVersion": "2021-02-01",
+        "name": "[concat(parameters('resource_prefix'), '-master-cluster-', parameters('resource_location'))]",
+        "location": "[parameters('resource_location')]",
+        "tags": {},
+        "properties": {
+          "kubernetesVersion": "[parameters('kube_version')]",
+          "dnsPrefix": "[concat(parameters('resource_prefix'), '-master', '-cluster')]",
+          "agentPoolProfiles": [
+            {
+              "name": "d4sv3",
+              "count": 1,
+              "vmSize": "Standard_D4s_v3",
+              "osDiskSizeGB": 100,
+              "osDiskType": "Managed",
+              "maxPods": 110,
+              "type": "VirtualMachineScaleSets",
+              "maxCount": 15,
+              "minCount": 1,
+              "enableAutoScaling": true,
+              "orchestratorVersion": "[parameters('kube_version')]",
+              "mode": "System"
+            }
+          ],
+          "autoScalerProfile": {
+            "balance-similar-node-groups": "false",
+            "expander": "random",
+            "max-empty-bulk-delete": "10",
+            "max-graceful-termination-sec": "600",
+            "max-node-provision-time": "15m",
+            "max-total-unready-percentage": "45",
+            "new-pod-scale-up-delay": "0s",
+            "ok-total-unready-count": "3",
+            "scale-down-delay-after-add": "10m",
+            "scale-down-delay-after-delete": "10s",
+            "scale-down-delay-after-failure": "3m",
+            "scale-down-unneeded-time": "10m",
+            "scale-down-unready-time": "20m",
+            "scale-down-utilization-threshold": "0.5",
+            "scan-interval": "10s",
+            "skip-nodes-with-local-storage": "false",
+            "skip-nodes-with-system-pods": "false"
+          },
+          "servicePrincipalProfile": {
+            "clientId": "[parameters('service_principal_appid')]",
+            "secret": "[parameters('service_principal_secret')]"
+          },
+          "addonProfiles": {
+            "httpapplicationrouting": {
+              "enabled": false,
+              "config": {}
+            },
+            "omsagent": {
+              "condition": "[parameters('audit_enable')]",
+              "enabled": true,
+              "config": {
+                "logAnalyticsWorkspaceResourceID": "[variables('log_analytics_workspacesId')]"
+              }
+            }
+          },
+          "enableRBAC": true,
+          "networkProfile": {
+            "networkPlugin": "kubenet"
+          }
+        },
+       "resources": [
+        {
+          "condition": "[parameters('audit_enable')]",
+          "type": "Microsoft.ContainerService/managedClusters/providers/diagnosticSettings",
+          "apiVersion": "2021-05-01-preview",
+          "name": "[concat(parameters('resource_prefix'), '-master-cluster-', parameters('resource_location'))]",
+          "dependsOn": [
+            "[resourceId('Microsoft.ContainerService/managedClusters', concat(parameters('resource_prefix'), '-master-cluster-', parameters('resource_location')))]"
+          ],
+          "properties": {
+            "storageAccountId": "[variables('storageAccountId')]",
+            "logs": [
+              {
+                "categoryGroup": "allLogs",
+                "enabled": true,
+                "retentionPolicy": {
+                  "days": 30,
+                  "enabled": true
+                }
+              }
+            ],
+            "metrics": [
+              {
+                "category": "AllMetrics",
+                "enabled": true,
+                "retentionPolicy": {
+                  "days": 30,
+                  "enabled": true
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

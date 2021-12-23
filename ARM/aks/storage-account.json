@@ -1,0 +1,63 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "resource_prefix": {
+        "type": "String"
+      },
+      "resource_location": {
+        "type": "String"
+      },
+      "audit_enable": {
+        "type": "bool",
+        "defaultValue": "false"
+      }
+    },
+    "variables": {
+      "storageAccountName": "[concat(parameters('resource_prefix'), 'audit', parameters('resource_location'))]"  // Storage account name must be between 3 and 24 characters in length and use numbers and lower-case letters only
+    },
+    "resources": [
+      {
+        "condition": "[equals(parameters('audit_enable'),'true')]",
+        "type": "Microsoft.Storage/storageAccounts",
+        "apiVersion": "2019-06-01",
+        "name": "[variables('storageAccountName')]",
+        "location": "[parameters('resource_location')]",
+        "tags": {
+          "Customer": "[parameters('resource_prefix')]"
+        },
+        "sku": {
+          "name": "Standard_ZRS",
+          "tier": "Standard"
+        },
+        "kind": "StorageV2",
+        "properties": {
+          "azureFilesIdentityBasedAuthentication": {
+            "directoryServiceOptions": "None"
+          },
+          "largeFileSharesState": "Disabled",
+          "networkAcls": {
+            "bypass": "AzureServices",
+            "virtualNetworkRules": [],
+            "ipRules": [],
+            "defaultAction": "Allow"
+          },
+          "supportsHttpsTrafficOnly": true,
+          "encryption": {
+            "services": {
+              "file": {
+                "keyType": "Account",
+                "enabled": true
+              },
+              "blob": {
+                "keyType": "Account",
+                "enabled": true
+              }
+            },
+            "keySource": "Microsoft.Storage"
+          },
+          "accessTier": "Hot"
+        }
+      }
+    ]
+  }

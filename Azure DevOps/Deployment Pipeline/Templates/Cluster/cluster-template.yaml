@@ -1,0 +1,178 @@
+parameters:
+  - name: resource_prefix # The prefix for this deployment / source is the Az DevOps library
+    type: string
+  - name: service_connection # The Service Connection to use
+    type: string
+  - name: resource_location # The azure location to deploy to
+    type: string
+  - name: sql_administrator_login_secret # The sql_administrator login secret
+    type: string
+  - name: service_principal_appid # The service principal appid
+    type: string
+  - name: service_principal_secret # The service principal secret
+    type: string
+  - name: dns_zone_name # The DNS zone name
+    type: string
+  - name: grafana_log_api # api key for grafana log #
+    type: string
+  - name: object_id # service principal object id #
+    type: string
+### Optional
+  - name: cert_manager_version # The cert manager version
+    type: string
+    default: v1.5.2 # Here we have control over the default version to deploy
+  - name: kube_version # The kubernetes version
+    type: string
+    default: 1.20.7 # Here we have control over the default version to deploy
+  - name: beat_version # The kubernetes version
+    type: string
+    default: 7.11.1 # Here we have control over the default version to deploy
+  - name: git_branch # The git branch of cluster template to deploy
+    type: string
+    default: develop # Here we have control over the default infrastructure branch to deploy
+  - name: elastic_pool_dtu_capacity # Currently the max DTU for the pool is also the max for the individual databases #
+    type: string
+    default: 100 # This is 100 DTU (Shared Compute)
+  - name: elastic_pool_db_capacity # Set the elastic pool database size (in bytes) #
+    type: string
+    default: 107374182400 # This is exactly 100 Gibibyte #
+
+steps:
+  - checkout: git://ContentHub/contenthub-infra@${{ parameters.git_branch }}
+    path: contenthub-infra
+
+### Create AKS Cluster ###
+  - task: AzureResourceGroupDeployment@2
+    displayName: AKS ARM Deployment
+    inputs:
+      azureSubscription: ${{ parameters.service_connection }}
+      resourceGroupName: ${{ parameters.resource_prefix }}-master
+      location: ${{ parameters.resource_location }}
+      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/aks-cluster.json
+      overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -service_principal_appid ${{ parameters.service_principal_appid }} -service_principal_secret ${{ parameters.service_principal_secret }} -kube_version ${{ parameters.kube_version }} -resource_location ${{ parameters.resource_location }}
+### End Create AKS Cluster ###
+
+### Deploy DNS zone ###
+  - task: AzureResourceGroupDeployment@2
+    displayName: DNS Zone
+    inputs:
+      azureSubscription: ${{ parameters.service_connection }}
+      resourceGroupName: ${{ parameters.resource_prefix }}-master
+      location: ${{ parameters.resource_location }}
+      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/dns-zone.json
+      overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -dns_zone_name ${{ parameters.dns_zone_name }}
+### End Deploy DNS zone ###
+
+### Add Helm Repositories ###
+  - task: Bash@3
+    displayName: Add Helm Repo
+    inputs:
+      targetType: inline
+      script: |
+        helm repo add jetstack https://charts.jetstack.io
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo add elastic https://helm.elastic.co
+        helm repo add grafana https://grafana.github.io/helm-charts
+        helm repo update
+### End Add Helm Repositories ###
+
+### Install Cert-Manager ###
+  - task: Kubernetes@1
+    displayName: Apply Cert-manager CRD's
+    condition: succeeded()
+    inputs:
+      connectionType: Azure Resource Manager
+      azureSubscriptionEndPoint: ${{ parameters.service_connection }}
+      azureResourceGroup: ${{ parameters.resource_prefix }}-master
+      kubernetesCluster: ${{ parameters.resource_prefix }}-master-cluster-${{ parameters.resource_location }}
+      command: apply
+      arguments: -f https://github.com/jetstack/cert-manager/releases/download/${{ parameters.cert_manager_version }}/cert-manager.crds.yaml
+
+  - task: HelmDeploy@0
+    displayName: Helm upgrade cert-manager
+    condition: succeeded()
+    inputs:
+      azureSubscription: ${{ parameters.service_connection }}
+      azureResourceGroup: ${{ parameters.resource_prefix }}-master
+      kubernetesCluster: ${{ parameters.resource_prefix }}-master-cluster-${{ parameters.resource_location }}
+      command: upgrade
+      chartType: Name
+      chartName: jetstack/cert-manager
+      arguments: --namespace cert-manager --create-namespace --version ${{ parameters.cert_manager_version }}
+      releaseName: cert-manager
+
+  - task: Kubernetes@1
+    displayName: Verify Cert-Manager Deployment
+    condition: succeeded()
+    inputs:
+      connectionType: Azure Resource Manager
+      azureSubscriptionEndPoint: ${{ parameters.service_connection }}
+      azureResourceGroup: ${{ parameters.resource_prefix }}-master
+      kubernetesCluster: ${{ parameters.resource_prefix }}-master-cluster-${{ parameters.resource_location }}
+      command: get
+      arguments: pods --namespace $(k8s.namespace.name)
+### End Install Cert-Manager ###
+
+### Deploy SQL Server ###
+  - task: AzureResourceGroupDeployment@2
+    displayName: Sql Server
+    condition: succeeded()
+    inputs:
+      azureSubscription: ${{ parameters.service_connection }}
+      resourceGroupName: ${{ parameters.resource_prefix }}-master
+      location: ${{ parameters.resource_location }}
+      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/sql-server.json
+      overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -sql_administrator_login_secret ${{ parameters.sql_administrator_login_secret }} -resource_location ${{ parameters.resource_location }}
+### End Deploy SQL Server ###
+
+### Deploy SQL Server ###
+  - task: AzureResourceGroupDeployment@2
+    displayName: Sql Elastic Pool
+    condition: succeeded()
+    inputs:
+      azureSubscription: ${{ parameters.service_connection }}
+      resourceGroupName: ${{ parameters.resource_prefix }}-master
+      location: ${{ parameters.resource_location }}
+      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/elastic-pool.json
+      overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -elastic_pool_dtu_capacity ${{ parameters.elastic_pool_dtu_capacity }} -elastic_pool_db_capacity ${{ parameters.elastic_pool_db_capacity }} -resource_location ${{ parameters.resource_location }}
+### End Deploy SQL Server ###
+
+### Deploy Key vault ###
+  - task: AzureResourceGroupDeployment@2
+    displayName: Key Vault
+    condition: succeeded()
+    inputs:
+      azureSubscription: ${{ parameters.service_connection }}
+      resourceGroupName: ${{ parameters.resource_prefix }}-master
+      location: ${{ parameters.resource_location }}
+      csmFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/arm/key-vault.json
+      overrideParameters: -resource_prefix ${{ parameters.resource_prefix }} -resource_location ${{ parameters.resource_location }} -objectId ${{ parameters.object_id }}
+### End Deploy Key vault ###
+
+#### Checkout grafana cloud repositories ###
+  - checkout: git://DevOps/grafana-cloud
+    path: grafana-cloud
+    displayName: grafana-cloud checkout
+#### End checkout repositories ##
+
+### Install Grafana agent and loki ###
+  - task: HelmDeploy@0
+    displayName: Deploy Grafana agent
+    condition: succeeded()
+    continueOnError: true
+    inputs:
+      azureSubscription: ${{ parameters.service_connection }}
+      azureResourceGroup: ${{ parameters.resource_prefix }}-master
+      kubernetesCluster: ${{ parameters.resource_prefix }}-master-cluster-${{ parameters.resource_location }}
+      namespace: monitoring
+      command: upgrade
+      arguments: --namespace monitoring --create-namespace
+      chartType: FilePath
+      chartPath: $(Agent.BuildDirectory)/grafana-cloud/grafana-agent
+      releaseName: grafana-agent
+      valueFile: $(Agent.BuildDirectory)/contenthub-infra/infrastructure/cluster/monitoring/grafana-values.yaml
+      waitForExecution: false
+      failOnStderr: true
+      overrideValues: clusterLabel=${{ parameters.resource_prefix }}-master-cluster-${{ parameters.resource_location }},logs.password=${{ parameters.grafana_log_api }}
+### End Install Grafana agent and loki ###
+

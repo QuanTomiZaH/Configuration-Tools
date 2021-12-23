@@ -1,0 +1,39 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "resource_prefix": {
+            "type": "String"
+        },
+        "resource_location": {
+            "type": "String"
+        }
+    },
+    "variables": {
+        "prometheus_public_ip_name": "[concat(parameters('resource_prefix'), '-master-public-ip')]",
+        "fqdn": "[concat(parameters('resource_prefix'), '-prometheus.', parameters('resource_location'), '.cloudapp.azure.com')]",
+        "domainNameLabel": "[concat(parameters('resource_prefix'), '-prometheus')]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2020-11-01",
+            "name": "[variables('prometheus_public_ip_name')]",
+            "location": "[parameters('resource_location')]",
+            "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+            },
+            "properties": {
+                "publicIPAddressVersion": "IPv4",
+                "publicIPAllocationMethod": "Static",
+                "idleTimeoutInMinutes": 4,
+                "dnsSettings": {
+                    "domainNameLabel": "[variables('domainNameLabel')]",
+                    "fqdn": "[variables('fqdn')]"
+                },
+                "ipTags": []
+            }
+        }
+    ]
+}

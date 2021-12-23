@@ -1,0 +1,82 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2014-04-01-preview/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "resource_prefix": {
+            "type": "String"
+        },
+        "elastic_pool_dtu_capacity": {
+            "type": "int"
+        },
+        "elastic_pool_db_capacity": {
+            "type": "int"
+        },
+        "resource_location": {
+            "type": "String"
+        },
+        "audit_enable": {
+        "type": "bool",
+        "defaultValue": "false"
+        }
+    },
+    "variables": {
+        "sql_serverName": "[concat(parameters('resource_prefix'), '-master-sql-server-', parameters('resource_location'))]",
+        "elastic_pool_name": "[concat(parameters('resource_prefix'), '-master', '-elastic-pool')]",
+        "storageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', concat(parameters('resource_prefix'), 'audit', parameters('resource_location')))]"
+    },
+    "resources": [
+        {
+            "name": "[concat(variables('sql_serverName'), '/', variables('elastic_pool_name'))]",
+            "tags": {},
+            "location": "[parameters('resource_location')]",
+            "type": "Microsoft.Sql/servers/elasticpools",
+            "apiVersion": "2021-02-01-preview",
+            "sku": {
+                "name": "StandardPool",
+                "tier": "Standard",
+                "capacity": "[parameters('elastic_pool_dtu_capacity')]"
+            },
+            "properties": {
+                "maxSizeBytes": "[parameters('elastic_pool_db_capacity')]",
+                "perDatabaseSettings": {
+                    "minCapacity": "0",
+                    "maxCapacity": "50"
+                },
+                "zoneRedundant": "false"
+            },
+            "resources": [
+              {
+                "condition": "[parameters('audit_enable')]",
+                "type": "Microsoft.Sql/servers/elasticpools/providers/diagnosticSettings",
+                "apiVersion": "2021-05-01-preview",
+                "name": "[variables('elastic_pool_name')]",
+                "dependsOn": [
+                  "[resourceId('Microsoft.Sql/servers/elasticpools', variables('elastic_pool_name'))]"
+                ],
+                "properties": {
+                  "storageAccountId": "[variables('storageAccountId')]",
+                  "metrics": [
+                    {
+                      "category": "Basic",
+                      "enabled": true,
+                      "retentionPolicy": {
+                        "days": 30,
+                        "enabled": true
+                      }
+                    },
+                    {
+                      "category": "InstanceAndAppAdvanced",
+                      "enabled": true,
+                      "retentionPolicy": {
+                        "days": 30,
+                        "enabled": true
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+        }    
+    ]
+}
+
