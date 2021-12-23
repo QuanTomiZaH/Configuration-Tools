@@ -1,0 +1,89 @@
+parameters:
+### Mandatory ###
+  - name: environment
+    type: string
+
+steps:
+    - task: AzureCLI@2
+      displayName: storage & sas key assign
+      inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        failOnStandardError: false
+        inlineScript: |
+          storage_key=$(az storage account keys list -n $(resource_prefix)$(customer)${{ parameters.environment }} --query [0].value --output tsv)
+          echo "##vso[task.setvariable variable=target_storage_key;]$storage_key"
+          storage_key=$(az storage account keys list -n $(resource_prefix)$(customer)${{ parameters.environment }}b --query [0].value --output tsv)
+          echo "##vso[task.setvariable variable=source_storage_key;]$storage_key"
+
+          end=$(date -u -d "30 minutes" '+%Y-%m-%dT%H:%MZ')
+          sas=$(az storage container generate-sas --account-name $(resource_prefix)$(customer)${{ parameters.environment }}b -n $(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db-bk --https-only --permissions dlrw --expiry $end -o tsv)
+          echo "##vso[task.setvariable variable=source_sas;]$sas"
+
+    - task: AzureCLI@2
+      displayName: dambucket container restore
+      inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        failOnStandardError: true
+        inlineScript: |
+          az storage blob copy start-batch \
+            --account-key $(target_storage_key) \
+            --account-name $(resource_prefix)$(customer)${{ parameters.environment }} \
+            --destination-container dambucket \
+            --source-account-key $(source_storage_key) \
+            --source-account-name $(resource_prefix)$(customer)${{ parameters.environment }}b \
+            --source-container dambucket
+
+    - task: AzureCLI@2
+      displayName: application fileshare restore
+      inputs:
+        azureSubscription: $(arm_service_connection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        failOnStandardError: true
+        inlineScript: |
+          az storage file copy start-batch \
+            --source-account-name $(resource_prefix)$(customer)${{ parameters.environment }}b \
+            --source-account-key $(source_storage_key) \
+            --source-share application \
+            --destination-share application \
+            --account-name $(resource_prefix)$(customer)${{ parameters.environment }} \
+            --account-key $(target_storage_key)
+
+    -  task: AzureCLI@2
+       displayName: sql import
+       inputs:
+          azureSubscription: $(arm_service_connection)
+          scriptType: bash
+          scriptLocation: inlineScript
+          failOnStandardError: true
+          inlineScript: | 
+            # az sql db import -s $(resource_prefix)-master-sql-server-$(resource_location) -n $(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db -g $(resource_prefix)-master -p $(sql_admin_password) -u $(resource_prefix)-master --storage-key $(source_storage_key) --storage-key-type StorageAccessKey --storage-uri https://$(resource_prefix)$(customer)${{ parameters.environment }}b.blob.core.windows.net/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db-bk/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup.bacpac
+            azcopy cp \
+              "https://$(resource_prefix)$(customer)${{ parameters.environment }}b.blob.core.windows.net/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db-bk/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup.bacpac?$(source_sas)" \
+              "$(Agent.BuildDirectory)/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup.bacpac" \
+              --recursive
+            
+            sqlpackage  /a:import /tsn:$(resource_prefix)-master-sql-server-$(resource_location).database.windows.net \
+              /tdn:$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-db \
+              /tu:$(resource_prefix)-master \
+              /tp:$(sql_admin_password) \
+              /sf:$(Agent.BuildDirectory)/$(resource_prefix)-$(customer)-${{ parameters.environment }}-sql-backup.bacpac
+
+    -  task: AzureCLI@2
+       displayName: disk restore
+       inputs:
+          azureSubscription: $(arm_service_connection)
+          scriptType: bash
+          scriptLocation: inlineScript
+          failOnStandardError: true
+          inlineScript: | 
+            az disk create \
+            -g $(resource_prefix)-$(customer)-${{ parameters.environment }} \
+            -n $(resource_prefix)-$(customer)-${{ parameters.environment }}-disk-solr \
+            --source "/subscriptions/b5e91abb-a4b6-4400-95f0-8b7bae651e0f/resourceGroups/$(resource_prefix)-$(customer)-${{ parameters.environment }}-bk/providers/Microsoft.Compute/snapshots/$(resource_prefix)-$(customer)-${{ parameters.environment }}-disk-solr-ss" \
+            --location westeurope \
+            --sku Standard_LRS
